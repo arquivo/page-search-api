@@ -40,6 +40,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -735,14 +736,10 @@ public class SolrSearchServiceTest {
     }
 
     @Test
-    public void query_urlSearch_noCdxWired_fallsBackToRegexQuery() throws Exception {
-        // No CDXSearchService is set, so this can't resolve a collection - it must skip straight to the regex
-        // fallback instead of the old leading-wildcard query, which routinely blew past timeAllowed
-        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101000000/(com,example,)/path");
-        QueryResponse queryResponse = queryResponseWithResults(doc);
-
+    public void query_urlSearch_noCdxWired_reportsNotFound() throws Exception {
+        // No CDXSearchService is set, so this can't resolve a collection - the document is reported as not
+        // found instead of falling back to the old leading-wildcard query, which routinely blew past timeAllowed
         HttpSolrClient solrClient = mock(HttpSolrClient.class);
-        when(solrClient.query(any(SolrQuery.class))).thenReturn(queryResponse);
         service.solrClient = solrClient;
 
         SearchQueryImpl searchQuery = new SearchQueryImpl("http://example.com");
@@ -750,15 +747,9 @@ public class SolrSearchServiceTest {
 
         SearchResults results = service.query(searchQuery, true);
 
-        ArgumentCaptor<SolrQuery> solrQueryCaptor = ArgumentCaptor.forClass(SolrQuery.class);
-        verify(solrClient).query(solrQueryCaptor.capture());
-        String query = solrQueryCaptor.getValue().getQuery();
-        assertThat(query).startsWith("urlTimestamp:/(").contains("\\/20190101000000\\/").doesNotContain("*");
-        assertThat(solrQueryCaptor.getValue().get("shards.tolerant")).isEqualTo("true");
-        assertThat(solrQueryCaptor.getValue().get("timeAllowed")).isEqualTo("10000");
-
-        assertThat(results.getResults()).hasSize(1);
-        assertThat(((SearchResultSolrImpl) results.getResults().get(0)).getSnippet()).isNull();
+        verify(solrClient, never()).query(any(SolrQuery.class));
+        assertThat(results.getNumberResults()).isEqualTo(0);
+        assertThat(results.getEstimatedNumberResults()).isEqualTo(0);
     }
 
     @Test
@@ -790,19 +781,17 @@ public class SolrSearchServiceTest {
     }
 
     @Test
-    public void query_urlSearch_cdxCollectionButExactMatchEmpty_retriesWithRegex() throws Exception {
-        // CDX can be wrong (e.g. stale/mismatched collection), so an empty exact-match result must not be
-        // reported as "not found" without trying the broader regex query first
+    public void query_urlSearch_cdxCollectionButExactMatchEmpty_reportsNotFound() throws Exception {
+        // CDX can be wrong (e.g. stale/mismatched collection) - an empty exact-match result is reported as
+        // "not found" without a broader regex query to fall back to
         CDXSearchService cdxSearchService = mock(CDXSearchService.class);
         when(cdxSearchService.getCollectionForExactMatch(anyString(), anyString(), anyInt())).thenReturn("WRONGCOLLECTION");
         service.setCdxSearchService(cdxSearchService);
 
         QueryResponse emptyResponse = queryResponseWithResults();
-        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101000000/(com,example,)/path");
-        QueryResponse realResponse = queryResponseWithResults(doc);
 
         HttpSolrClient solrClient = mock(HttpSolrClient.class);
-        when(solrClient.query(any(SolrQuery.class))).thenReturn(emptyResponse).thenReturn(realResponse);
+        when(solrClient.query(any(SolrQuery.class))).thenReturn(emptyResponse);
         service.solrClient = solrClient;
 
         SearchQueryImpl searchQuery = new SearchQueryImpl("http://example.com");
@@ -811,11 +800,9 @@ public class SolrSearchServiceTest {
         SearchResults results = service.query(searchQuery, true);
 
         ArgumentCaptor<SolrQuery> solrQueryCaptor = ArgumentCaptor.forClass(SolrQuery.class);
-        verify(solrClient, times(2)).query(solrQueryCaptor.capture());
-        List<SolrQuery> queries = solrQueryCaptor.getAllValues();
-        assertThat(queries.get(0).getQuery()).startsWith("urlTimestamp:WRONGCOLLECTION/");
-        assertThat(queries.get(1).getQuery()).startsWith("urlTimestamp:/(").contains("\\/20190101000000\\/");
+        verify(solrClient, times(1)).query(solrQueryCaptor.capture());
+        assertThat(solrQueryCaptor.getValue().getQuery()).startsWith("urlTimestamp:WRONGCOLLECTION/");
 
-        assertThat(results.getResults()).hasSize(1);
+        assertThat(results.getResults()).isEmpty();
     }
 }

@@ -11,6 +11,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -46,14 +47,6 @@ public class SolrSearchService implements SearchService {
 
     /** Result fields that are only returned when the user asks for them through the fields parameter. */
     private static final List<String> OPT_IN_FIELDS = Arrays.asList("language", "languageConfidence");
-
-    /** Fallback default for {@link #numberedCollectionsRegex} - kept in sync with the property default below. */
-    private static final String DEFAULT_NUMBERED_COLLECTIONS_REGEX =
-            "[EFMS]?AWP[1-9][0-9]?|PATCHING20[1-9][0-9]|RAQ20[1-9][0-9]";
-
-    /** Fallback default for {@link #namedCollectionsCsv} - kept in sync with the property default below. */
-    private static final String DEFAULT_NAMED_COLLECTIONS_CSV = "BN,BlocoEsquerda,BlogsSapo2018,CEGER,Curadoria,"
-            + "DEM-IST,Dinis,DinisAlves2018,EAWP10-2,Geocities,IA,InternetMemory,NON,Revisionista,Roteiro,Tomba,UL,Weblog";
 
     /**
      * The minLanguageConfidence tiers, from the most to the least confident, and the value each one has in the
@@ -102,36 +95,19 @@ public class SolrSearchService implements SearchService {
     private int timeAllowed = 10000;
 
     /**
-     * Used by queryByUrl to resolve a document's collection before falling back to a broader regex search.
-     * Optional: when CDX isn't wired in (or not configured), queryByUrl just skips straight to the regex query.
+     * Used by queryByUrl to resolve a document's collection. Optional: when CDX isn't wired in (or not
+     * configured), queryByUrl just reports the document as not found.
      */
     @Autowired(required = false)
     private CDXSearchService cdxSearchService;
 
     /**
      * Timeout (ms) for the CDX lookup queryByUrl uses to resolve a document's collection. Kept short and separate
-     * from the general CDX timeouts (see CDXSearchService), since this is a fast-path optimization, not the only
-     * way queryByUrl can find a document - a slow/failed lookup just falls back to the regex query.
+     * from the general CDX timeouts (see CDXSearchService). A slow/failed lookup means the document is reported
+     * as not found - CDX is the only way queryByUrl resolves a collection.
      */
     @Value("${searchpages.queryByUrl.cdx.timeout.ms:1000}")
     private int queryByUrlCdxTimeoutMs = 1000;
-
-    /**
-     * Regex matching every "numbered" collection code (e.g. AWP12, FAWP3, PATCHING2019, RAQ2021), used as part
-     * of the queryByUrl regex fallback. Configurable so a new pattern (e.g. widening the digit bound once a
-     * collection like FAWP reaches triple digits, or adding a wholly new "<prefix>AWP<N>"-like pattern) is a
-     * config change, not a code change.
-     */
-    @Value("${searchpages.queryByUrl.numberedCollectionsRegex:" + DEFAULT_NUMBERED_COLLECTIONS_REGEX + "}")
-    private String numberedCollectionsRegex = DEFAULT_NUMBERED_COLLECTIONS_REGEX;
-
-    /**
-     * The collection codes that don't follow the numbered pattern (see {@link #numberedCollectionsRegex}), named
-     * individually instead - comma separated. Configurable so a new one-off collection (e.g. Roteiro, Dinis) is
-     * a config change, not a code change.
-     */
-    @Value("${searchpages.queryByUrl.namedCollections:" + DEFAULT_NAMED_COLLECTIONS_CSV + "}")
-    private String namedCollectionsCsv = DEFAULT_NAMED_COLLECTIONS_CSV;
 
     private YearVolumes yearVolumes;
 
@@ -1102,13 +1078,9 @@ public class SolrSearchService implements SearchService {
      *
      * The collection segment of the urlTimestamp field isn't known upfront, so naively this needs a leading
      * wildcard query (urlTimestamp:* /timestamp/surt), which forces Solr to walk its entire term dictionary and
-     * routinely blows past timeAllowed. To avoid that, this tries progressively broader (and slower) strategies
-     * until one finds the document:
-     *   1. Ask CDX (which indexes ahead of Solr) for the collection, then query Solr for the exact match.
-     *   2. If CDX doesn't answer in time, has nothing, or the resulting exact match comes back empty (e.g. a
-     *      stale/mismatched collection from CDX), fall back to a regex query over the known collection name
-     *      patterns - slower, but still bounded, unlike the leading wildcard.
-     *   3. If that also finds nothing, the document just isn't there.
+     * routinely blows past timeAllowed. To avoid that, this asks CDX (which indexes ahead of Solr) for the
+     * collection first, then queries Solr for the exact match. If CDX doesn't answer in time, has nothing, or
+     * the resulting exact match comes back empty, the document is treated as not found.
      */
     @Override
     public SearchResults query(SearchQuery searchQuery, boolean urlSearch) {
@@ -1124,82 +1096,42 @@ public class SolrSearchService implements SearchService {
 
         List<String> exactClauses = urls.stream()
                 .map(url -> buildQueryByUrlClause(url, tstamp))
+                .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
-        SearchResults searchResults = executeQueryByUrl(exactClauses, searchQuery);
-
-        if (searchResults != null && searchResults.getNumberResults() == 0) {
-            List<String> regexClauses = urls.stream()
-                    .map(url -> buildRegexClause(URLNormalizers.canocalizeSurtUrl(url), tstamp))
-                    .collect(Collectors.toList());
-            if (!regexClauses.equals(exactClauses)) {
-                LOG.info("queryByUrl exact match found nothing, retrying with the regex fallback");
-                searchResults = executeQueryByUrl(regexClauses, searchQuery);
-            }
+        if (exactClauses.isEmpty()) {
+            SearchResults searchResults = new SearchResults();
+            searchResults.setEstimatedNumberResults(0);
+            searchResults.setNumberResults(0);
+            return searchResults;
         }
 
-        return searchResults;
+        return executeQueryByUrl(exactClauses, searchQuery);
     }
 
     /**
-     * Builds the queryByUrl clause for a single URL: an exact match on its collection when CDX can resolve one in
-     * time, or the (slower) regex fallback otherwise.
+     * Builds the queryByUrl clause for a single URL: an exact match on the collection CDX resolved, or null when
+     * CDX couldn't resolve one - the caller then treats that URL as not found.
      */
     private String buildQueryByUrlClause(String url, String tstamp) {
-        String surt = URLNormalizers.canocalizeSurtUrl(url);
         String collection = lookupCollectionViaCdx(url, tstamp);
-        if (collection != null) {
-            return "urlTimestamp:" + ClientUtils.escapeQueryChars(collection) + "/" + tstamp + "/"
-                    + ClientUtils.escapeQueryChars(surt);
+        if (collection == null) {
+            return null;
         }
-        return buildRegexClause(surt, tstamp);
+        String surt = URLNormalizers.canocalizeSurtUrl(url);
+        return "urlTimestamp:" + ClientUtils.escapeQueryChars(collection) + "/" + tstamp + "/"
+                + ClientUtils.escapeQueryChars(surt);
     }
 
     /**
-     * Builds a regex query over the known collection name patterns, so the collection segment of urlTimestamp
-     * doesn't need a leading wildcard even when it isn't known.
-     */
-    private String buildRegexClause(String surt, String tstamp) {
-        return "urlTimestamp:/" + collectionsRegex() + "\\/" + escapeRegexLiteral(tstamp) + "\\/"
-                + escapeRegexLiteral(surt) + "/";
-    }
-
-    /**
-     * Regex matching every known collection code: the numbered ones ({@link #numberedCollectionsRegex}) plus
-     * the named ones that don't follow that pattern ({@link #namedCollectionsCsv}). Kept narrow (bounded digit
-     * counts) so Solr's regex automaton stays cheap, instead of degenerating into a full leading-wildcard scan.
-     */
-    private String collectionsRegex() {
-        String namedCollectionsRegex = String.join("|", namedCollectionsCsv.split("\\s*,\\s*"));
-        return "(" + numberedCollectionsRegex + "|" + namedCollectionsRegex + ")";
-    }
-
-    /**
-     * Asks CDX for the collection of an exact url+timestamp match. Returns null (falling back to the regex query)
-     * when CDX isn't wired in, doesn't answer in time, or has no match - CDX indexes ahead of Solr, but that's
-     * never guaranteed, so this is only ever a fast-path optimization, not a requirement.
+     * Asks CDX for the collection of an exact url+timestamp match. Returns null (the caller then treats the
+     * document as not found) when CDX isn't wired in, doesn't answer in time, or has no match.
      */
     private String lookupCollectionViaCdx(String url, String tstamp) {
         if (cdxSearchService == null) {
             return null;
         }
         return cdxSearchService.getCollectionForExactMatch(url, tstamp, queryByUrlCdxTimeoutMs);
-    }
-
-    /**
-     * Backslash-escapes every non-alphanumeric character, so a literal string can be embedded in a Lucene regex
-     * query safely. This is a different escaping requirement than ClientUtils.escapeQueryChars, which escapes
-     * classic Lucene query-syntax characters for exact-match/wildcard queries, not regex metacharacters.
-     */
-    private static String escapeRegexLiteral(String s) {
-        StringBuilder sb = new StringBuilder();
-        for (char c : s.toCharArray()) {
-            if (!Character.isLetterOrDigit(c)) {
-                sb.append('\\');
-            }
-            sb.append(c);
-        }
-        return sb.toString();
     }
 
     private SearchResults executeQueryByUrl(List<String> solrQueryForSites, SearchQuery searchQuery) {
