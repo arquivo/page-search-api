@@ -10,7 +10,7 @@ public class SearchServiceConfiguration {
     private String baseSolrUrl;
     private String textSearchServiceEndpoint;
     private boolean showIds;
-    private int timeAllowedMs = 10000;
+    private int timeAllowedMs = 60000;
 
     public String getStartDate() {
         return startDate;

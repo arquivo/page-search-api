@@ -45,7 +45,7 @@ public class SearchResultSolrImpl implements SearchResult {
     private SolrClient solrClient;
 
     // Max time (ms) Solr is allowed to spend processing a query (timeAllowed param)
-    private int timeAllowed = 10000;
+    private int timeAllowed = 60000;
 
     public String getTitle() {
         return title;
