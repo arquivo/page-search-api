@@ -88,8 +88,8 @@ public class SolrSearchService implements SearchService {
     private long yearVolumesTtlMillis = 86400000L;
 
     /** Max time (ms) Solr is allowed to spend processing a single query, so slow queries don't overwhelm it. */
-    @Value("${searchpages.solr.timeallowed.ms:10000}")
-    private int timeAllowed = 10000;
+    @Value("${searchpages.solr.timeallowed.ms:60000}")
+    private int timeAllowed = 60000;
 
     private YearVolumes yearVolumes;
 
