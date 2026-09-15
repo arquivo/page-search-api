@@ -82,8 +82,8 @@ public class SolrSearchServiceTest {
     }
 
     @Test
-    public void applyTimeAllowed_defaultsTo10000ms() {
-        assertThat(service.applyTimeAllowed(new SolrQuery()).get("timeAllowed")).isEqualTo("10000");
+    public void applyTimeAllowed_defaultsTo60000ms() {
+        assertThat(service.applyTimeAllowed(new SolrQuery()).get("timeAllowed")).isEqualTo("60000");
     }
 
     @Test
@@ -99,7 +99,7 @@ public class SolrSearchServiceTest {
     @Test
     public void convertSearchQuery_setsTimeAllowed() {
         SolrQuery solrQuery = service.convertSearchQuery(new SearchQueryImpl("sapo"));
-        assertThat(solrQuery.get("timeAllowed")).isEqualTo("10000");
+        assertThat(solrQuery.get("timeAllowed")).isEqualTo("60000");
     }
 
     @Test
@@ -619,7 +619,7 @@ public class SolrSearchServiceTest {
         SearchResults results = service.query(new SearchQueryImpl("sapo"));
 
         SearchResultSolrImpl result = (SearchResultSolrImpl) results.getResults().get(0);
-        assertThat(result.getTimeAllowed()).isEqualTo(10000);
+        assertThat(result.getTimeAllowed()).isEqualTo(60000);
     }
 
     @Test
@@ -651,7 +651,7 @@ public class SolrSearchServiceTest {
 
         ArgumentCaptor<SolrQuery> solrQueryCaptor = ArgumentCaptor.forClass(SolrQuery.class);
         verify(solrClient).query(solrQueryCaptor.capture());
-        assertThat(solrQueryCaptor.getValue().get("timeAllowed")).isEqualTo("10000");
+        assertThat(solrQueryCaptor.getValue().get("timeAllowed")).isEqualTo("60000");
     }
 
     @Test
@@ -735,7 +735,7 @@ public class SolrSearchServiceTest {
 
         ArgumentCaptor<SolrQuery> solrQueryCaptor = ArgumentCaptor.forClass(SolrQuery.class);
         verify(solrClient).query(solrQueryCaptor.capture());
-        assertThat(solrQueryCaptor.getValue().get("timeAllowed")).isEqualTo("10000");
+        assertThat(solrQueryCaptor.getValue().get("timeAllowed")).isEqualTo("60000");
     }
 
     @Test
@@ -756,7 +756,7 @@ public class SolrSearchServiceTest {
         verify(solrClient).query(solrQueryCaptor.capture());
         assertThat(solrQueryCaptor.getValue().getQuery()).startsWith("urlTimestamp:*/20190101000000/");
         assertThat(solrQueryCaptor.getValue().get("shards.tolerant")).isEqualTo("true");
-        assertThat(solrQueryCaptor.getValue().get("timeAllowed")).isEqualTo("10000");
+        assertThat(solrQueryCaptor.getValue().get("timeAllowed")).isEqualTo("60000");
         assertThat(solrQueryCaptor.getValue().getFilterQueries()).contains("-blocked:1");
 
         assertThat(results.getResults()).hasSize(1);

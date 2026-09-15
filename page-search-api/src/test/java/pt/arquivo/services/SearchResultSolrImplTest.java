@@ -51,9 +51,9 @@ public class SearchResultSolrImplTest {
     }
 
     @Test
-    public void timeAllowed_defaultsTo10000ms() {
+    public void timeAllowed_defaultsTo60000ms() {
         SearchResultSolrImpl result = new SearchResultSolrImpl();
-        assertThat(result.getTimeAllowed()).isEqualTo(10000);
+        assertThat(result.getTimeAllowed()).isEqualTo(60000);
     }
 
     @Test
