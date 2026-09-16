@@ -48,7 +48,7 @@ public class SearchResultSerializer extends JsonSerializer {
                             }
                         } else if (!field.getName().equals("LOG") && !field.getName().equals("bean")
                                 && !field.getName().equals("details") && !field.getName().equals("fields")
-                                && !field.getName().equals("solrClient")) {
+                                && !field.getName().equals("solrClient") && !field.getName().equals("timeAllowed")) {
                             jsonGenerator.writeObjectField(field.getName(), field.get(searchResult));
                         }
                     }
@@ -61,6 +61,9 @@ public class SearchResultSerializer extends JsonSerializer {
     }
 
     private boolean serializeField(String fieldName, String[] fields) {
+        if (fieldName.equals("solrClient") || fieldName.equals("timeAllowed")) {
+            return false;
+        }
         if (fields != null) {
             for (String field : fields) {
                 if (fieldName.equalsIgnoreCase(field))
