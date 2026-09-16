@@ -444,6 +444,13 @@ public class SolrSearchServiceTest {
     }
 
     @Test
+    public void convertSearchQuery_setsHlFragsizeFromSnippetMaxLength() {
+        SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setSnippetMaxLength(150);
+        assertThat(service.convertSearchQuery(searchQuery).getInt("hl.fragsize", -1)).isEqualTo(150);
+    }
+
+    @Test
     public void timestampSurtTo_extractsCollectionTimestampAndSurt() {
         String urlTimestamp = "COLLECTION1/20190101000000/(com,example,)/path";
         assertThat(service.timestampSurtToCollection(urlTimestamp)).isEqualTo("COLLECTION1");
@@ -733,7 +740,7 @@ public class SolrSearchServiceTest {
         SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
         QueryResponse queryResponse = queryResponseWithHighlighting(doc, "content", "hi <em>there</em>");
 
-        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1");
+        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 300);
 
         assertThat(highlighted).isEqualTo("hi <em>there</em><span class=\"ellipsis\"> ... </span>");
     }
@@ -751,7 +758,7 @@ public class SolrSearchServiceTest {
         when(solrClient.query(any(SolrQuery.class))).thenReturn(contentResponse);
         service.solrClient = solrClient;
 
-        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1");
+        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 300);
 
         assertThat(highlighted).isEqualTo("short content");
     }
@@ -769,7 +776,7 @@ public class SolrSearchServiceTest {
         when(solrClient.query(any(SolrQuery.class))).thenReturn(contentResponse);
         service.solrClient = solrClient;
 
-        service.getHighlightedText(queryResponse, "content", "doc-1");
+        service.getHighlightedText(queryResponse, "content", "doc-1", 300);
 
         ArgumentCaptor<SolrQuery> solrQueryCaptor = ArgumentCaptor.forClass(SolrQuery.class);
         verify(solrClient).query(solrQueryCaptor.capture());
@@ -790,9 +797,46 @@ public class SolrSearchServiceTest {
         when(solrClient.query(any(SolrQuery.class))).thenReturn(contentResponse);
         service.solrClient = solrClient;
 
-        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1");
+        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 500);
 
         assertThat(highlighted).isEqualTo(longContent.substring(0, 500) + "<span class=\"ellipsis\"> ... </span>");
+    }
+
+    @Test
+    public void getHighlightedText_fallbackRespectsCustomSnippetMaxLength() throws Exception {
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        QueryResponse queryResponse = queryResponseWithResults(doc);
+
+        SolrDocument contentDoc = new SolrDocument();
+        contentDoc.addField("content", "abcdefghij");
+        QueryResponse contentResponse = queryResponseWithResults(contentDoc);
+
+        HttpSolrClient solrClient = mock(HttpSolrClient.class);
+        when(solrClient.query(any(SolrQuery.class))).thenReturn(contentResponse);
+        service.solrClient = solrClient;
+
+        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 5);
+
+        assertThat(highlighted).isEqualTo("abcde<span class=\"ellipsis\"> ... </span>");
+    }
+
+    @Test
+    public void getHighlightedText_fallbackSnippetMaxLengthZeroDisablesTruncation() throws Exception {
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        QueryResponse queryResponse = queryResponseWithResults(doc);
+
+        String longContent = String.join("", java.util.Collections.nCopies(600, "a"));
+        SolrDocument contentDoc = new SolrDocument();
+        contentDoc.addField("content", longContent);
+        QueryResponse contentResponse = queryResponseWithResults(contentDoc);
+
+        HttpSolrClient solrClient = mock(HttpSolrClient.class);
+        when(solrClient.query(any(SolrQuery.class))).thenReturn(contentResponse);
+        service.solrClient = solrClient;
+
+        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 0);
+
+        assertThat(highlighted).isEqualTo(longContent);
     }
 
     @Test
@@ -805,7 +849,7 @@ public class SolrSearchServiceTest {
         when(solrClient.query(any(SolrQuery.class))).thenReturn(contentResponse);
         service.solrClient = solrClient;
 
-        service.getHighlightedText(queryResponse, "content", "doc-1");
+        service.getHighlightedText(queryResponse, "content", "doc-1", 300);
 
         ArgumentCaptor<SolrQuery> solrQueryCaptor = ArgumentCaptor.forClass(SolrQuery.class);
         verify(solrClient).query(solrQueryCaptor.capture());
