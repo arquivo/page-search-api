@@ -5,6 +5,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -16,6 +17,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.RequestBuilder;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import pt.arquivo.services.SearchQuery;
 import pt.arquivo.services.SearchResult;
 import pt.arquivo.services.SearchResultNutchImpl;
 import pt.arquivo.services.SearchResults;
@@ -28,6 +30,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static pt.arquivo.services.cdx.CDXSearchService.getSearchResultNutch;
 
 
@@ -417,5 +422,119 @@ public class PageSearchControllerTest {
         ItemCDX item = new ItemCDX("URL", "123456789", "", "", null, "",
                 null, "0", "");
         getSearchResultNutch(item);
+    }
+
+    @Test
+    public void pageSearchQueryNullReturns400() throws Exception {
+        MvcResult result = mockMvc.perform(MockMvcRequestBuilders.get("/textsearch")).andReturn();
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(400);
+    }
+
+    @Test
+    public void pageSearchQueryLooksLikeUrlReturns400() throws Exception {
+        MvcResult result = mockMvc.perform(MockMvcRequestBuilders.get("/textsearch?q=example.com")).andReturn();
+
+        MockHttpServletResponse response = result.getResponse();
+        assertThat(response.getStatus()).isEqualTo(400);
+        JSONObject jsonResponse = new JSONObject(response.getContentAsString());
+        assertThat(jsonResponse.getString("message")).contains("cdxserverapi");
+    }
+
+    @Test
+    public void extractedTextIdWithoutSlashReturns404() throws Exception {
+        MvcResult result = mockMvc.perform(MockMvcRequestBuilders.get("/textextracted?m=no-slash-id")).andReturn();
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(404);
+    }
+
+    @Test
+    public void extractedTextInvalidMetadataReturns404() throws Exception {
+        MvcResult result = mockMvc.perform(MockMvcRequestBuilders
+                .get("/textextracted?m=http://example.com/20190101000000abc")).andReturn();
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(404);
+    }
+
+    @Test
+    public void extractedTextEmptyResultsReturns404() throws Exception {
+        SearchResults emptyResults = new SearchResults();
+        emptyResults.setResults(new ArrayList<>());
+        Mockito.when(searchService.query(Mockito.any(), eq(true))).thenReturn(emptyResults);
+
+        MvcResult result = mockMvc.perform(MockMvcRequestBuilders
+                .get("/textextracted?m=http://example.com/20190101000000")).andReturn();
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(404);
+    }
+
+    @Test
+    public void extractedTextReturnsExtractedText() throws Exception {
+        SearchResult searchResult = mock(SearchResult.class);
+        when(searchResult.getExtractedText()).thenReturn("Hello world");
+        ArrayList<SearchResult> resultsList = new ArrayList<>();
+        resultsList.add(searchResult);
+        SearchResults searchResults = new SearchResults();
+        searchResults.setResults(resultsList);
+        Mockito.when(searchService.query(Mockito.any(), eq(true))).thenReturn(searchResults);
+
+        MvcResult result = mockMvc.perform(MockMvcRequestBuilders
+                .get("/textextracted?m=http://example.com/20190101000000")).andReturn();
+
+        MockHttpServletResponse response = result.getResponse();
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.getContentAsString()).isEqualTo("Hello world");
+    }
+
+    @Test
+    public void pageSearchItemsPerSiteFromToAppliedToSearchQuery() throws Exception {
+        SearchResults mockSearchResults = new SearchResults();
+        mockSearchResults.setResults(new ArrayList<>());
+        Mockito.when(searchService.query(Mockito.any())).thenReturn(mockSearchResults);
+
+        mockMvc.perform(MockMvcRequestBuilders
+                .get("/textsearch?q=sapo&itemsPerSite=3&from=20200101&to=20211231")).andReturn();
+
+        ArgumentCaptor<SearchQuery> captor = ArgumentCaptor.forClass(SearchQuery.class);
+        Mockito.verify(searchService).query(captor.capture());
+        assertThat(captor.getValue().getLimitPerSite()).isEqualTo(3);
+        assertThat(captor.getValue().getFrom()).isEqualTo("20200101000000");
+        assertThat(captor.getValue().getTo()).isEqualTo("20211231000000");
+    }
+
+    @Test
+    public void pageSearchXForwardedForHeaderUsed() throws Exception {
+        SearchResults mockSearchResults = new SearchResults();
+        mockSearchResults.setResults(new ArrayList<>());
+        Mockito.when(searchService.query(Mockito.any())).thenReturn(mockSearchResults);
+
+        MvcResult result = mockMvc.perform(MockMvcRequestBuilders.get("/textsearch?q=sapo")
+                .header("X-FORWARDED-FOR", "203.0.113.5")).andReturn();
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    public void pageSearchUserAgentHeaderBlankIsTreatedAsAbsent() throws Exception {
+        SearchResults mockSearchResults = new SearchResults();
+        mockSearchResults.setResults(new ArrayList<>());
+        Mockito.when(searchService.query(Mockito.any())).thenReturn(mockSearchResults);
+
+        MvcResult result = mockMvc.perform(MockMvcRequestBuilders.get("/textsearch?q=sapo")
+                .header("User-Agent", "   ")).andReturn();
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    public void pageSearchUserAgentHeaderSet() throws Exception {
+        SearchResults mockSearchResults = new SearchResults();
+        mockSearchResults.setResults(new ArrayList<>());
+        Mockito.when(searchService.query(Mockito.any())).thenReturn(mockSearchResults);
+
+        MvcResult result = mockMvc.perform(MockMvcRequestBuilders.get("/textsearch?q=sapo")
+                .header("User-Agent", "TestAgent/1.0")).andReturn();
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(200);
     }
 }
