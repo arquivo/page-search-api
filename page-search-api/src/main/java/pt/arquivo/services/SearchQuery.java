@@ -24,6 +24,10 @@ public interface SearchQuery {
 
     void setMaxItems(int maxItems);
 
+    int getTitleMaxLength();
+
+    void setTitleMaxLength(int titleMaxLength);
+
     int getDedupValue();
 
     void setDedupValue(int dedupValue);
