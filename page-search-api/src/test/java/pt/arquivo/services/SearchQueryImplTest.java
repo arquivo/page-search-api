@@ -65,6 +65,20 @@ public class SearchQueryImplTest {
     }
 
     @Test
+    public void getTitleMaxLength_defaultsTo300() {
+        assertEquals(300, new SearchQueryImpl("sapo").getTitleMaxLength());
+    }
+
+    @Test
+    public void setTitleMaxLength() {
+        searchQuery.setTitleMaxLength(100);
+        assertEquals(100, searchQuery.getTitleMaxLength());
+
+        searchQuery.setTitleMaxLength(-1);
+        assertEquals(0, searchQuery.getTitleMaxLength());
+    }
+
+    @Test
     public void getDedupValue() {
         assertEquals(2, searchQuery.getDedupValue());
     }
