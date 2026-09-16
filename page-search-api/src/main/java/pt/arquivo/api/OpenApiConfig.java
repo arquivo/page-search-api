@@ -8,6 +8,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 
 @Configuration
 public class OpenApiConfig {
@@ -15,6 +17,9 @@ public class OpenApiConfig {
 
     @Value("${searchpages.api.title.maxlength:300}")
     private int defaultTitleMaxLength;
+
+    @Value("${searchpages.api.snippet.maxlength:300}")
+    private int defaultSnippetMaxLength;
 
     @Bean
     public OpenAPI api() {
@@ -26,17 +31,22 @@ public class OpenApiConfig {
                 ));
     }
 
-    // The @Parameter description on titleMaxLength can't reference the injected default directly since annotation
-    // attributes must be compile-time constants, so the actual configured value is spliced in here at doc-generation
-    // time instead.
+    // The @Parameter description on these parameters can't reference the injected defaults directly since annotation
+    // attributes must be compile-time constants, so the actual configured values are spliced in here at
+    // doc-generation time instead.
     @Bean
-    public OperationCustomizer titleMaxLengthDefaultDocCustomizer() {
+    public OperationCustomizer defaultValueDocCustomizer() {
+        Map<String, Integer> defaultsByParameter = new HashMap<>();
+        defaultsByParameter.put("titleMaxLength", defaultTitleMaxLength);
+        defaultsByParameter.put("snippetMaxLength", defaultSnippetMaxLength);
+
         return (operation, handlerMethod) -> {
             if (operation.getParameters() != null) {
                 operation.getParameters().stream()
-                        .filter(parameter -> "titleMaxLength".equals(parameter.getName()))
+                        .filter(parameter -> defaultsByParameter.containsKey(parameter.getName()))
                         .forEach(parameter -> parameter.setDescription(
-                                parameter.getDescription() + " Defaults to " + defaultTitleMaxLength + "."));
+                                parameter.getDescription() + " Defaults to "
+                                        + defaultsByParameter.get(parameter.getName()) + "."));
             }
             return operation;
         };
