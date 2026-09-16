@@ -619,9 +619,20 @@ public class SolrSearchService implements SearchService {
     }
 
     /**
-     * Gets the highlighted text from the Solr "content" field to fill the API "snippet" field. If there was no text to be 
+     * Truncates the title to at most maxLength characters, appending an ellipsis when truncated.
+     * A maxLength of 0 or less disables truncation.
+     */
+    private static String truncateTitle(String title, int maxLength) {
+        if (maxLength <= 0 || title.length() <= maxLength) {
+            return title;
+        }
+        return title.substring(0, maxLength).trim() + "…";
+    }
+
+    /**
+     * Gets the highlighted text from the Solr "content" field to fill the API "snippet" field. If there was no text to be
      * hightlighted in the Solr "content" field, will use the first 500 chars of the "content" field instead.
-     * 
+     *
      * @param queryResponse
      * @param fieldName
      * @param docId
@@ -798,7 +809,7 @@ public class SolrSearchService implements SearchService {
      * @param replyFields
      * @return
      */
-    private SearchResultSolrImpl getSearchResultfromSolrDocument(SolrDocument doc, QueryResponse queryResponse, Long to, Long from, String[] siteSearchSurts, String[] collectionSearch, String[] replyFields ){
+    private SearchResultSolrImpl getSearchResultfromSolrDocument(SolrDocument doc, QueryResponse queryResponse, Long to, Long from, String[] siteSearchSurts, String[] collectionSearch, String[] replyFields, int titleMaxLength ){
         String oldestUrl = null;
         String oldestTimestamp = null;
         String oldestCollection = null;
@@ -820,7 +831,7 @@ public class SolrSearchService implements SearchService {
         
 
         SearchResultSolrImpl searchResult = new SearchResultSolrImpl();
-        populateSearchResult(searchResult, queryResponse, doc, oldestUrl, oldestTimestamp, oldestCollection, replyFields);
+        populateSearchResult(searchResult, queryResponse, doc, oldestUrl, oldestTimestamp, oldestCollection, replyFields, titleMaxLength);
         searchResult.setSolrClient(this.solrClient);
         searchResult.setTimeAllowed(this.timeAllowed);
         return searchResult;
@@ -844,6 +855,8 @@ public class SolrSearchService implements SearchService {
         final String[] collectionSearch;
         final String[] replyFields;
         final Map<String, SolrDocumentList> expandedResults = queryResponse.getExpandedResults();
+
+        int titleMaxLength = searchQuery.getTitleMaxLength();
 
         // Check which fields the user asked for
         String[] requestedFields = resultFields(searchQuery);
@@ -887,7 +900,7 @@ public class SolrSearchService implements SearchService {
 
         for (SolrDocument doc : solrDocumentList) {
 
-            SearchResultSolrImpl searchResult = getSearchResultfromSolrDocument(doc,queryResponse,to,from,siteSearchSurts,collectionSearch,replyFields);
+            SearchResultSolrImpl searchResult = getSearchResultfromSolrDocument(doc,queryResponse,to,from,siteSearchSurts,collectionSearch,replyFields,titleMaxLength);
             if(searchResult == null){
                 continue;
             }
@@ -909,7 +922,7 @@ public class SolrSearchService implements SearchService {
                     }
                     SolrDocument expandedDoc = (SolrDocument) next;
 
-                    SearchResultSolrImpl expandedResult = getSearchResultfromSolrDocument(expandedDoc,queryResponse,to,from,siteSearchSurts,collectionSearch,replyFields);
+                    SearchResultSolrImpl expandedResult = getSearchResultfromSolrDocument(expandedDoc,queryResponse,to,from,siteSearchSurts,collectionSearch,replyFields,titleMaxLength);
                     if(expandedResult == null){
                         continue;
                     }
@@ -969,11 +982,12 @@ public class SolrSearchService implements SearchService {
      * @param replyFields
      */
     private void populateSearchResult(SearchResultSolrImpl searchResult, QueryResponse queryResponse, SolrDocument doc,
-            String oldestUrl, String oldestTimestamp, String oldestCollection, String[] replyFields) {
+            String oldestUrl, String oldestTimestamp, String oldestCollection, String[] replyFields, int titleMaxLength) {
         for (String field : replyFields) {
             switch (field) {
                 case "title":
-                    searchResult.setTitle((String) coalesce(doc.getFieldValue("titleString"), ""));
+                    String title = (String) coalesce(doc.getFieldValue("titleString"), "");
+                    searchResult.setTitle(truncateTitle(title, titleMaxLength));
                     break;
                 case "originalURL":
                     searchResult.setOriginalURL(oldestUrl);
