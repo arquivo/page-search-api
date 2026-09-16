@@ -30,6 +30,8 @@ public class SearchQueryImpl implements SearchQuery {
 
     private int titleMaxLength = 300;
 
+    private int snippetMaxLength = 300;
+
     // TODO decreprated field
     @JsonIgnore
     private Integer limitPerSite;
@@ -124,6 +126,14 @@ public class SearchQueryImpl implements SearchQuery {
 
     public void setTitleMaxLength(int titleMaxLength) {
         this.titleMaxLength = Math.max(titleMaxLength, 0);
+    }
+
+    public int getSnippetMaxLength() {
+        return snippetMaxLength;
+    }
+
+    public void setSnippetMaxLength(int snippetMaxLength) {
+        this.snippetMaxLength = Math.max(snippetMaxLength, 0);
     }
 
     public Integer getLimitPerSite() {
