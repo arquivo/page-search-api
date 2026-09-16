@@ -155,7 +155,7 @@ public class PageSearchController {
                            @RequestParam(value = "metadata", required = false) String id,
                            @RequestParam(value = "offset", required = false, defaultValue = "0") int offset,
                            @RequestParam(value = "maxItems", required = false, defaultValue = "50") int maxItems,
-                           @Parameter(description = "Maximum number of characters returned in the title field. Titles longer than this are cut short and suffixed with an ellipsis (…). 0 disables truncation. Defaults to the searchpages.api.title.maxlength config value.")
+                           @Parameter(description = "Maximum number of characters returned in the title field. Titles longer than this are cut short and suffixed with an ellipsis (…). 0 disables truncation.")
                            @RequestParam(value = "titleMaxLength", required = false) Integer titleMaxLength,
                            @RequestParam(value = "siteSearch", required = false) String[] siteSearch,
                            @Parameter(description = "Field results are deduplicated by, keeping only the newest per distinct value. title (the default) collapses on the exact title. "
