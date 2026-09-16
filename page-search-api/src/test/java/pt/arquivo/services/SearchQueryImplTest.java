@@ -211,4 +211,94 @@ public class SearchQueryImplTest {
         searchQuery.setCollection(null);
         assertTrue(searchQuery.toString().length() > 0);
     }
+
+    @Test
+    public void getQuotedQueryTerms_nullQuery_returnsNull() {
+        SearchQueryImpl freshQuery = new SearchQueryImpl(null);
+        assertNull(freshQuery.getQuotedQueryTerms());
+    }
+
+    @Test
+    public void getQuotedQueryTerms_alreadyDoubleQuoted_isNotQuotedAgain() {
+        SearchQueryImpl freshQuery = new SearchQueryImpl("\"sapo\"");
+        assertEquals("\"sapo\"", freshQuery.getQuotedQueryTerms());
+    }
+
+    @Test
+    public void getQuotedQueryTerms_alreadySingleQuoted_isNotQuotedAgain() {
+        SearchQueryImpl freshQuery = new SearchQueryImpl("'sapo'");
+        assertEquals("'sapo'", freshQuery.getQuotedQueryTerms());
+    }
+
+    @Test
+    public void getQuotedQueryTerms_unquoted_isQuoted() {
+        assertEquals("\"sapo ya\"", searchQuery.getQuotedQueryTerms());
+    }
+
+    @Test
+    public void setMaxItems_overCap_isClampedToMax() {
+        searchQuery.setMaxItems(10000);
+        assertEquals(500, searchQuery.getMaxItems());
+    }
+
+    @Test
+    public void isTimeBoundedQuery_fromAndToUnset_returnsFalse() {
+        SearchQueryImpl freshQuery = new SearchQueryImpl("sapo");
+        assertFalse(freshQuery.isTimeBoundedQuery());
+    }
+
+    @Test
+    public void isTimeBoundedQuery_onlyFromSet_returnsTrue() {
+        SearchQueryImpl freshQuery = new SearchQueryImpl("sapo");
+        freshQuery.setFrom("20190101");
+        assertTrue(freshQuery.isTimeBoundedQuery());
+    }
+
+    @Test
+    public void isTimeBoundedQuery_onlyToSet_returnsTrue() {
+        SearchQueryImpl freshQuery = new SearchQueryImpl("sapo");
+        freshQuery.setTo("20190101");
+        assertTrue(freshQuery.isTimeBoundedQuery());
+    }
+
+    @Test
+    public void isSearchByTitle_titleSearchUnset_returnsFalse() {
+        assertFalse(searchQuery.isSearchByTitle());
+    }
+
+    @Test
+    public void isSearchByTitle_titleSearchSet_returnsTrue() {
+        searchQuery.setTitleSearch("arquivo");
+        assertTrue(searchQuery.isSearchByTitle());
+    }
+
+    @Test
+    public void isSpellcheck_fieldsNull_returnsFalse() {
+        searchQuery.setFields(null);
+        assertFalse(searchQuery.isSpellcheck());
+    }
+
+    @Test
+    public void isSpellcheck_fieldsWithoutSpellcheck_returnsFalse() {
+        searchQuery.setFields(new String[]{"title"});
+        assertFalse(searchQuery.isSpellcheck());
+    }
+
+    @Test
+    public void isSpellcheck_fieldsWithSpellcheckCaseInsensitive_returnsTrue() {
+        searchQuery.setFields(new String[]{"title", "SpellCheck"});
+        assertTrue(searchQuery.isSpellcheck());
+    }
+
+    @Test
+    public void setYearBalance_belowMin_isClampedToMin() {
+        searchQuery.setYearBalance(-0.5);
+        assertEquals(SearchQueryImpl.MIN_YEAR_BALANCE, searchQuery.getYearBalance(), 0.0001);
+    }
+
+    @Test
+    public void setYearBalance_aboveMax_isClampedToMax() {
+        searchQuery.setYearBalance(1.5);
+        assertEquals(SearchQueryImpl.MAX_YEAR_BALANCE, searchQuery.getYearBalance(), 0.0001);
+    }
 }
