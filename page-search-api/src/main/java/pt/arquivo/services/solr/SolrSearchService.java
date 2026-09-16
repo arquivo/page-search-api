@@ -478,6 +478,11 @@ public class SolrSearchService implements SearchService {
         // query rather than relying on server-side defaults (see arquivo/pwa-technologies#1609)
         solrQuery.set("hl.method", "unified");
 
+        // Caps how many characters of the content field each snippet carries, so a single match doesn't return
+        // the whole document (see arquivo/pwa-technologies#1635). 0 means "no cap", matching Solr's own meaning
+        // for hl.fragsize as well as this API's convention for titleMaxLength.
+        solrQuery.set("hl.fragsize", searchQuery.getSnippetMaxLength());
+
         // If we don't need snippet we don't ask Solr for highligting (which is on by default since v5), and a query
         // asking for no results at all has nothing to highlight either
         if(!needsSnippet || searchQuery.getMaxItems() == 0){
@@ -631,14 +636,15 @@ public class SolrSearchService implements SearchService {
 
     /**
      * Gets the highlighted text from the Solr "content" field to fill the API "snippet" field. If there was no text to be
-     * hightlighted in the Solr "content" field, will use the first 500 chars of the "content" field instead.
+     * hightlighted in the Solr "content" field, will use the first snippetMaxLength chars of the "content" field instead.
      *
      * @param queryResponse
      * @param fieldName
      * @param docId
+     * @param snippetMaxLength maximum number of characters of the content field fallback, 0 or less disables truncation
      * @return
      */
-    public String getHighlightedText(final QueryResponse queryResponse, final String fieldName, final String docId) {
+    public String getHighlightedText(final QueryResponse queryResponse, final String fieldName, final String docId, final int snippetMaxLength) {
         String highlightedText = "";
         Map<String, Map<String, List<String>>> highlights = queryResponse.getHighlighting();
 
@@ -652,7 +658,7 @@ public class SolrSearchService implements SearchService {
             }
         }
 
-        // If we don't get highlighted text on the content we display the first 500 chars of the content
+        // If we don't get highlighted text on the content we display the first snippetMaxLength chars of the content
         if (highlightedText.length() == 0) {
             SolrQuery solrQuery = new SolrQuery();
             solrQuery.set("shards.tolerant", "true");
@@ -666,10 +672,10 @@ public class SolrSearchService implements SearchService {
                 if (solrDocumentList.size() > 0) {
                     String content = (String) solrDocumentList.get(0).getFieldValue("content");
                     if (content != null && content.length() > 0) {
-                        if (content.length() <= 500) {
+                        if (snippetMaxLength <= 0 || content.length() <= snippetMaxLength) {
                             highlightedText = content;
                         } else {
-                            highlightedText = content.substring(0, 500) + "<span class=\"ellipsis\"> ... </span>";
+                            highlightedText = content.substring(0, snippetMaxLength) + "<span class=\"ellipsis\"> ... </span>";
                         }
                     }
                 }
@@ -809,7 +815,7 @@ public class SolrSearchService implements SearchService {
      * @param replyFields
      * @return
      */
-    private SearchResultSolrImpl getSearchResultfromSolrDocument(SolrDocument doc, QueryResponse queryResponse, Long to, Long from, String[] siteSearchSurts, String[] collectionSearch, String[] replyFields, int titleMaxLength ){
+    private SearchResultSolrImpl getSearchResultfromSolrDocument(SolrDocument doc, QueryResponse queryResponse, Long to, Long from, String[] siteSearchSurts, String[] collectionSearch, String[] replyFields, int titleMaxLength, int snippetMaxLength ){
         String oldestUrl = null;
         String oldestTimestamp = null;
         String oldestCollection = null;
@@ -831,7 +837,7 @@ public class SolrSearchService implements SearchService {
         
 
         SearchResultSolrImpl searchResult = new SearchResultSolrImpl();
-        populateSearchResult(searchResult, queryResponse, doc, oldestUrl, oldestTimestamp, oldestCollection, replyFields, titleMaxLength);
+        populateSearchResult(searchResult, queryResponse, doc, oldestUrl, oldestTimestamp, oldestCollection, replyFields, titleMaxLength, snippetMaxLength);
         searchResult.setSolrClient(this.solrClient);
         searchResult.setTimeAllowed(this.timeAllowed);
         return searchResult;
@@ -857,6 +863,7 @@ public class SolrSearchService implements SearchService {
         final Map<String, SolrDocumentList> expandedResults = queryResponse.getExpandedResults();
 
         int titleMaxLength = searchQuery.getTitleMaxLength();
+        int snippetMaxLength = searchQuery.getSnippetMaxLength();
 
         // Check which fields the user asked for
         String[] requestedFields = resultFields(searchQuery);
@@ -900,7 +907,7 @@ public class SolrSearchService implements SearchService {
 
         for (SolrDocument doc : solrDocumentList) {
 
-            SearchResultSolrImpl searchResult = getSearchResultfromSolrDocument(doc,queryResponse,to,from,siteSearchSurts,collectionSearch,replyFields,titleMaxLength);
+            SearchResultSolrImpl searchResult = getSearchResultfromSolrDocument(doc,queryResponse,to,from,siteSearchSurts,collectionSearch,replyFields,titleMaxLength,snippetMaxLength);
             if(searchResult == null){
                 continue;
             }
@@ -922,7 +929,7 @@ public class SolrSearchService implements SearchService {
                     }
                     SolrDocument expandedDoc = (SolrDocument) next;
 
-                    SearchResultSolrImpl expandedResult = getSearchResultfromSolrDocument(expandedDoc,queryResponse,to,from,siteSearchSurts,collectionSearch,replyFields,titleMaxLength);
+                    SearchResultSolrImpl expandedResult = getSearchResultfromSolrDocument(expandedDoc,queryResponse,to,from,siteSearchSurts,collectionSearch,replyFields,titleMaxLength,snippetMaxLength);
                     if(expandedResult == null){
                         continue;
                     }
@@ -982,7 +989,7 @@ public class SolrSearchService implements SearchService {
      * @param replyFields
      */
     private void populateSearchResult(SearchResultSolrImpl searchResult, QueryResponse queryResponse, SolrDocument doc,
-            String oldestUrl, String oldestTimestamp, String oldestCollection, String[] replyFields, int titleMaxLength) {
+            String oldestUrl, String oldestTimestamp, String oldestCollection, String[] replyFields, int titleMaxLength, int snippetMaxLength) {
         for (String field : replyFields) {
             switch (field) {
                 case "title":
@@ -1008,7 +1015,7 @@ public class SolrSearchService implements SearchService {
                     searchResult.setId((String) coalesce(doc.getFieldValue("id"), ""));
                     break;
                 case "snippet":
-                    searchResult.setSnippet(getHighlightedText(queryResponse, "content", (String) doc.get("id")));
+                    searchResult.setSnippet(getHighlightedText(queryResponse, "content", (String) doc.get("id"), snippetMaxLength));
                     break;
                 case "linkToArchive":
                     searchResult.setLinkToArchive(waybackServiceEndpoint + "/" + oldestTimestamp + "/" + oldestUrl);
