@@ -307,6 +307,10 @@
                             <includes>
                                 <include>pt/arquivo/**/*.class</include>
                             </includes>
+                            <excludes>
+                                <!-- Deprecated legacy search backend, not held to coverage targets -->
+                                <exclude>pt/arquivo/services/nutchwax/**</exclude>
+                            </excludes>
                         </configuration>
                     </execution>
                 </executions>
