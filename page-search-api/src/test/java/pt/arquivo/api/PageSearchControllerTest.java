@@ -232,6 +232,7 @@ public class PageSearchControllerTest {
         JSONObject jsonRequests = jsonResponse.getJSONObject("request_parameters");
         assertThat(jsonRequests.getString("q")).isEqualTo("sapo");
         assertThat(jsonRequests.getInt("maxItems")).isEqualTo(50);
+        assertThat(jsonRequests.getInt("titleMaxLength")).isEqualTo(300);
         assertThat(jsonRequests.getInt("offset")).isEqualTo(0);
         assertThat(jsonRequests.getInt("dedupValue")).isEqualTo(2);
         assertThat(jsonRequests.getString("dedupField")).isEqualTo("title");

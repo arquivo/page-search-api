@@ -152,6 +152,8 @@ public class PageSearchController {
                            @RequestParam(value = "metadata", required = false) String id,
                            @RequestParam(value = "offset", required = false, defaultValue = "0") int offset,
                            @RequestParam(value = "maxItems", required = false, defaultValue = "50") int maxItems,
+                           @Parameter(description = "Maximum number of characters returned in the title field. Titles longer than this are cut short and suffixed with an ellipsis (…). 0 disables truncation.")
+                           @RequestParam(value = "titleMaxLength", required = false, defaultValue = "300") int titleMaxLength,
                            @RequestParam(value = "siteSearch", required = false) String[] siteSearch,
                            @Parameter(description = "Field results are deduplicated by, keeping only the newest per distinct value. title (the default) collapses on the exact title. "
                                    + "collection collapses on the collection. type collapses on the mimetype. url collapses on the exact URL, so two pages are only "
@@ -215,6 +217,7 @@ public class PageSearchController {
         SearchQuery searchQuery = new SearchQueryImpl(query);
         searchQuery.setOffset(offset);
         searchQuery.setMaxItems(maxItems);
+        searchQuery.setTitleMaxLength(titleMaxLength);
 
         // TODO to decrepate parameter
         if (itemsPerSite != null) {
