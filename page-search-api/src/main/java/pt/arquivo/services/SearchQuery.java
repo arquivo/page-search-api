@@ -28,6 +28,10 @@ public interface SearchQuery {
 
     void setTitleMaxLength(int titleMaxLength);
 
+    int getSnippetMaxLength();
+
+    void setSnippetMaxLength(int snippetMaxLength);
+
     int getDedupValue();
 
     void setDedupValue(int dedupValue);

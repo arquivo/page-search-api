@@ -79,6 +79,20 @@ public class SearchQueryImplTest {
     }
 
     @Test
+    public void getSnippetMaxLength_defaultsTo300() {
+        assertEquals(300, new SearchQueryImpl("sapo").getSnippetMaxLength());
+    }
+
+    @Test
+    public void setSnippetMaxLength() {
+        searchQuery.setSnippetMaxLength(100);
+        assertEquals(100, searchQuery.getSnippetMaxLength());
+
+        searchQuery.setSnippetMaxLength(-1);
+        assertEquals(0, searchQuery.getSnippetMaxLength());
+    }
+
+    @Test
     public void getDedupValue() {
         assertEquals(2, searchQuery.getDedupValue());
     }
