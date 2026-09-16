@@ -1,5 +1,6 @@
 package pt.arquivo.services.solr;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
@@ -652,6 +653,79 @@ public class SolrSearchServiceTest {
         ArgumentCaptor<SolrQuery> solrQueryCaptor = ArgumentCaptor.forClass(SolrQuery.class);
         verify(solrClient).query(solrQueryCaptor.capture());
         assertThat(solrQueryCaptor.getValue().get("timeAllowed")).isEqualTo("10000");
+    }
+
+    @Test
+    public void query_truncatesTitleToDefaultMaxLengthWithEllipsis() throws Exception {
+        String longTitle = StringUtils.repeat("a", 310);
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        doc.addField("titleString", longTitle);
+        QueryResponse queryResponse = queryResponseWithResults(doc);
+
+        HttpSolrClient solrClient = mock(HttpSolrClient.class);
+        when(solrClient.query(any(SolrQuery.class))).thenReturn(queryResponse);
+        service.solrClient = solrClient;
+
+        SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setFields(new String[] { "title" });
+        SearchResults results = service.query(searchQuery);
+
+        String title = results.getResults().get(0).getTitle();
+        assertThat(title).isEqualTo(StringUtils.repeat("a", 300) + "…");
+    }
+
+    @Test
+    public void query_respectsCustomTitleMaxLength() throws Exception {
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        doc.addField("titleString", "abcdefghij");
+        QueryResponse queryResponse = queryResponseWithResults(doc);
+
+        HttpSolrClient solrClient = mock(HttpSolrClient.class);
+        when(solrClient.query(any(SolrQuery.class))).thenReturn(queryResponse);
+        service.solrClient = solrClient;
+
+        SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setFields(new String[] { "title" });
+        searchQuery.setTitleMaxLength(5);
+        SearchResults results = service.query(searchQuery);
+
+        assertThat(results.getResults().get(0).getTitle()).isEqualTo("abcde…");
+    }
+
+    @Test
+    public void query_titleMaxLengthZeroDisablesTruncation() throws Exception {
+        String longTitle = StringUtils.repeat("a", 310);
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        doc.addField("titleString", longTitle);
+        QueryResponse queryResponse = queryResponseWithResults(doc);
+
+        HttpSolrClient solrClient = mock(HttpSolrClient.class);
+        when(solrClient.query(any(SolrQuery.class))).thenReturn(queryResponse);
+        service.solrClient = solrClient;
+
+        SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setFields(new String[] { "title" });
+        searchQuery.setTitleMaxLength(0);
+        SearchResults results = service.query(searchQuery);
+
+        assertThat(results.getResults().get(0).getTitle()).isEqualTo(longTitle);
+    }
+
+    @Test
+    public void query_doesNotAppendEllipsisWhenTitleShorterThanLimit() throws Exception {
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        doc.addField("titleString", "short title");
+        QueryResponse queryResponse = queryResponseWithResults(doc);
+
+        HttpSolrClient solrClient = mock(HttpSolrClient.class);
+        when(solrClient.query(any(SolrQuery.class))).thenReturn(queryResponse);
+        service.solrClient = solrClient;
+
+        SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setFields(new String[] { "title" });
+        SearchResults results = service.query(searchQuery);
+
+        assertThat(results.getResults().get(0).getTitle()).isEqualTo("short title");
     }
 
     @Test
