@@ -82,6 +82,23 @@ public class SearchResultSerializerTest {
     }
 
     @Test
+    public void defaultMode_neverLeaksTimeAllowed() throws IOException {
+        serializer.showIds = false;
+        result.setTimeAllowed(5000);
+        JsonNode node = serialize();
+        assertThat(node.has("timeAllowed")).isFalse();
+    }
+
+    @Test
+    public void whitelistMode_neverLeaksTimeAllowedEvenIfRequested() throws IOException {
+        serializer.showIds = false;
+        result.setTimeAllowed(5000);
+        result.setFields(new String[] { "title", "timeAllowed" });
+        JsonNode node = serialize();
+        assertThat(node.has("timeAllowed")).isFalse();
+    }
+
+    @Test
     public void whitelistMode_onlyIncludesRequestedFields() throws IOException {
         serializer.showIds = false;
         result.setFields(new String[] { "title" });
