@@ -451,6 +451,16 @@ public class SolrSearchServiceTest {
     }
 
     @Test
+    public void convertSearchQuery_usesWordBoundaryScannerSoFragsizeIsActuallyHonored() {
+        // hl.fragsize is only a hint to the Unified Highlighter: its default SENTENCE boundary scanner can treat a
+        // whole run of unpunctuated text (common in scraped web content) as a single "sentence" and ignore fragsize
+        // entirely (arquivo/pwa-technologies#1635). A WORD boundary scanner keeps it honoring fragsize instead.
+        SolrQuery solrQuery = service.convertSearchQuery(new SearchQueryImpl("sapo"));
+        assertThat(solrQuery.get("hl.bs.type")).isEqualTo("WORD");
+        assertThat(solrQuery.get("hl.fragsizeIsMinimum")).isEqualTo("false");
+    }
+
+    @Test
     public void timestampSurtTo_extractsCollectionTimestampAndSurt() {
         String urlTimestamp = "COLLECTION1/20190101000000/(com,example,)/path";
         assertThat(service.timestampSurtToCollection(urlTimestamp)).isEqualTo("COLLECTION1");
@@ -743,6 +753,52 @@ public class SolrSearchServiceTest {
         String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 300);
 
         assertThat(highlighted).isEqualTo("hi <em>there</em><span class=\"ellipsis\"> ... </span>");
+    }
+
+    @Test
+    public void getHighlightedText_capsHighlightedSnippetEvenWhenSolrIgnoresFragsize() {
+        // Guards against the Unified Highlighter returning something longer than hl.fragsize asked for (see
+        // arquivo/pwa-technologies#1635) - the API must enforce snippetMaxLength itself regardless.
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        String longSnippet = "hi " + StringUtils.repeat("a", 300) + " <em>there</em>";
+        QueryResponse queryResponse = queryResponseWithHighlighting(doc, "content", longSnippet);
+
+        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 10);
+
+        assertThat(highlighted).isEqualTo("hi aaaaaaa<span class=\"ellipsis\"> ... </span>");
+    }
+
+    @Test
+    public void getHighlightedText_truncationClosesADanglingEmTagInsteadOfCuttingMidTag() {
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        // The match starts right before the cutoff, so a naive substring(0, 10) would land inside "<em>"
+        QueryResponse queryResponse = queryResponseWithHighlighting(doc, "content", "0123456789<em>match</em> more text");
+
+        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 12);
+
+        assertThat(highlighted).isEqualTo("0123456789<span class=\"ellipsis\"> ... </span>");
+    }
+
+    @Test
+    public void getHighlightedText_truncationClosesAStillOpenEmTag() {
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        QueryResponse queryResponse = queryResponseWithHighlighting(doc, "content", "before <em>matched term</em> after");
+
+        // Cuts in the middle of the highlighted term itself, leaving "<em>" open
+        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 15);
+
+        assertThat(highlighted).isEqualTo("before <em>matc</em><span class=\"ellipsis\"> ... </span>");
+    }
+
+    @Test
+    public void getHighlightedText_snippetMaxLengthZeroDisablesTruncationOfHighlightedSnippet() {
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        String longSnippet = "hi " + StringUtils.repeat("a", 300) + " <em>there</em>";
+        QueryResponse queryResponse = queryResponseWithHighlighting(doc, "content", longSnippet);
+
+        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 0);
+
+        assertThat(highlighted).isEqualTo(longSnippet + "<span class=\"ellipsis\"> ... </span>");
     }
 
     @Test
