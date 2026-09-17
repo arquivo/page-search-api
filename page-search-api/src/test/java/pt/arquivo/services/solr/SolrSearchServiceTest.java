@@ -461,6 +461,20 @@ public class SolrSearchServiceTest {
     }
 
     @Test
+    public void convertSearchQuery_doesNotSetFragmentSizingParamsWhenSnippetNotNeeded() {
+        // hl.fragsize/hl.fragsizeIsMinimum/hl.bs.type only matter to the highlighter that builds the snippet, so
+        // there's nothing for them to size when the query doesn't ask for one
+        SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setFields(new String[] { "title" });
+
+        SolrQuery solrQuery = service.convertSearchQuery(searchQuery);
+
+        assertThat(solrQuery.get("hl.fragsize")).isNull();
+        assertThat(solrQuery.get("hl.fragsizeIsMinimum")).isNull();
+        assertThat(solrQuery.get("hl.bs.type")).isNull();
+    }
+
+    @Test
     public void timestampSurtTo_extractsCollectionTimestampAndSurt() {
         String urlTimestamp = "COLLECTION1/20190101000000/(com,example,)/path";
         assertThat(service.timestampSurtToCollection(urlTimestamp)).isEqualTo("COLLECTION1");
@@ -586,8 +600,12 @@ public class SolrSearchServiceTest {
     }
 
     private static QueryResponse queryResponseWithHighlighting(SolrDocument doc, String fieldName, String snippet) {
+        return queryResponseWithHighlighting(doc, fieldName, Arrays.asList(snippet));
+    }
+
+    private static QueryResponse queryResponseWithHighlighting(SolrDocument doc, String fieldName, List<String> snippets) {
         NamedList<List<String>> docHighlight = new NamedList<>();
-        docHighlight.add(fieldName, Arrays.asList(snippet));
+        docHighlight.add(fieldName, snippets);
         NamedList<Object> highlighting = new NamedList<>();
         highlighting.add((String) doc.getFieldValue("id"), docHighlight);
 
@@ -799,6 +817,18 @@ public class SolrSearchServiceTest {
         String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 0);
 
         assertThat(highlighted).isEqualTo(longSnippet + "<span class=\"ellipsis\"> ... </span>");
+    }
+
+    @Test
+    public void getHighlightedText_truncatesEachFragmentIndependentlyWhenMultipleSnippetsReturned() {
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        QueryResponse queryResponse = queryResponseWithHighlighting(doc, "content",
+                Arrays.asList("<em>first</em> match here", "<em>second</em> match here"));
+
+        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 10);
+
+        assertThat(highlighted).isEqualTo("<em>first</em><span class=\"ellipsis\"> ... </span>"
+                + "<em>second</em><span class=\"ellipsis\"> ... </span>");
     }
 
     @Test
