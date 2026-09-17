@@ -478,10 +478,22 @@ public class SolrSearchService implements SearchService {
         // query rather than relying on server-side defaults (see arquivo/pwa-technologies#1609)
         solrQuery.set("hl.method", "unified");
 
-        // Caps how many characters of the content field each snippet carries, so a single match doesn't return
-        // the whole document (see arquivo/pwa-technologies#1635). 0 means "no cap", matching Solr's own meaning
-        // for hl.fragsize as well as this API's convention for titleMaxLength.
-        solrQuery.set("hl.fragsize", searchQuery.getSnippetMaxLength());
+        // if snippet / highlighting is needed, configure the highlighter parameters
+        if (needsSnippet) {
+            // Caps how many characters of the content field each snippet carries, so a single match doesn't return
+            // the whole document (see arquivo/pwa-technologies#1635). 0 means "no cap", matching Solr's own meaning
+            // for hl.fragsize as well as this API's convention for titleMaxLength.
+            //
+            // hl.fragsize alone is only a hint, not a hard cap: the Unified Highlighter's default SENTENCE boundary
+            // scanner can treat a whole run of unpunctuated text (common in scraped web content) as a single
+            // "sentence" and return it in full regardless of fragsize. Using a WORD boundary scanner instead keeps
+            // fragments honoring fragsize even on such content. As a hard guarantee independent of these hints (and
+            // of whatever hl.* defaults/invariants the Solr server itself may enforce), getHighlightedText also
+            // re-clamps the assembled snippet to snippetMaxLength itself.
+            solrQuery.set("hl.fragsize", searchQuery.getSnippetMaxLength());
+            solrQuery.set("hl.fragsizeIsMinimum", "false");
+            solrQuery.set("hl.bs.type", "WORD");
+        }
 
         // If we don't need snippet we don't ask Solr for highligting (which is on by default since v5), and a query
         // asking for no results at all has nothing to highlight either
@@ -654,7 +666,7 @@ public class SolrSearchService implements SearchService {
         if (fieldsSnippet != null) {
             List<String> snippets = fieldsSnippet.getOrDefault(fieldName, null);
             if (snippets != null) {
-                highlightedText = getFragments(snippets);
+                highlightedText = getFragments(snippets, snippetMaxLength);
             }
         }
 
@@ -686,13 +698,38 @@ public class SolrSearchService implements SearchService {
         return highlightedText;
     }
 
-    private static final String getFragments(List<String> snippets) {
+    private static final String getFragments(List<String> snippets, int snippetMaxLength) {
         StringBuilder fragments = new StringBuilder();
         for (int i = 0; i < snippets.size(); i++) {
-            fragments.append(snippets.get(i));
+            fragments.append(truncateHighlightedFragment(snippets.get(i), snippetMaxLength));
             fragments.append("<span class=\"ellipsis\"> ... </span>");
         }
         return fragments.toString();
+    }
+
+    /**
+     * Truncates a single highlighted fragment to at most maxLength characters, guaranteeing the cap regardless of
+     * whatever the Solr highlighter itself actually honored (see arquivo/pwa-technologies#1635: hl.fragsize is only
+     * a hint to it, not a hard limit). Cuts are kept from landing inside a "<em>"/"</em>" match-highlighting tag,
+     * closing a still-open one so the markup stays valid. A maxLength of 0 or less disables truncation.
+     */
+    private static String truncateHighlightedFragment(String fragment, int maxLength) {
+        if (maxLength <= 0 || fragment.length() <= maxLength) {
+            return fragment;
+        }
+        String truncated = fragment.substring(0, maxLength);
+
+        int lastOpenBracket = truncated.lastIndexOf('<');
+        int lastCloseBracket = truncated.lastIndexOf('>');
+        if (lastOpenBracket > lastCloseBracket) {
+            truncated = truncated.substring(0, lastOpenBracket);
+        }
+
+        if (StringUtils.countMatches(truncated, "<em>") > StringUtils.countMatches(truncated, "</em>")) {
+            truncated += "</em>";
+        }
+
+        return truncated;
     }
 
     /**
