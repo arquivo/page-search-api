@@ -489,7 +489,13 @@ public class SolrSearchService implements SearchService {
             // "sentence" and return it in full regardless of fragsize. Using a WORD boundary scanner instead keeps
             // fragments honoring fragsize even on such content. As a hard guarantee independent of these hints (and
             // of whatever hl.* defaults/invariants the Solr server itself may enforce), getHighlightedText also
-            // re-clamps the assembled snippet to snippetMaxLength itself.
+            // re-clamps the assembled snippet to snippetMaxLength itself, so none of these three params are actually
+            // required for correctness anymore. They're kept anyway to stop Solr from doing the highlighting work
+            // and shipping back a much larger fragment than needed, only for it to be discarded on arrival. This
+            // isn't expected to add Solr-side query cost: fragsize/fragsizeIsMinimum only change where the
+            // highlighter, already running for this query, stops building a fragment, and WORD boundary scanning
+            // (BreakIterator.getWordInstance) is cheaper than the default SENTENCE scanning
+            // (BreakIterator.getSentenceInstance) it replaces.
             solrQuery.set("hl.fragsize", searchQuery.getSnippetMaxLength());
             solrQuery.set("hl.fragsizeIsMinimum", "false");
             solrQuery.set("hl.bs.type", "WORD");
