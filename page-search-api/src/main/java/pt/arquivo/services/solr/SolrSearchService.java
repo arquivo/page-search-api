@@ -19,6 +19,9 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
+import org.apache.solr.client.solrj.response.Group;
+import org.apache.solr.client.solrj.response.GroupCommand;
+import org.apache.solr.client.solrj.response.GroupResponse;
 import org.apache.solr.client.solrj.response.QueryResponse;
 import org.apache.solr.client.solrj.response.SpellCheckResponse;
 import org.apache.solr.client.solrj.util.ClientUtils;
@@ -332,25 +335,25 @@ public class SolrSearchService implements SearchService {
             solrQuery.addFilterQuery(stringBuilder.toString());
         }
 
-        // Handle deduplication:
+        // Handle deduplication: Solr result grouping does the merging correctly across every shard (unlike
+        // {!collapse}, which only collapsed within a single shard, see arquivo/pwa-technologies#1624), so it doubles
+        // as the dedup mechanism. group.main is deliberately left unset: parseQueryResponse needs the per-group
+        // breakdown (matches/groups/doclist), not the flattened group.main=true shape, to rebuild pagination and
+        // ordering itself.
+        //
+        // group.ngroups is deliberately NOT set: it asks every shard to enumerate its full set of distinct
+        // group.field values so they can be merged into an exact cross-shard count, which is by far the most
+        // expensive part of distributed grouping (measured ~70x slower than plain group=true against the dev Solr,
+        // 12 shards). estimatedNumberResults is only ever shown to users as an approximate count, so
+        // parseQueryResponse uses the (already-computed as part of the search itself) matches count instead.
         if (searchQuery.getDedupValue() >= 0){ //deduplication disabled if dedupValue == -1
-            Integer dedupValue = searchQuery.getDedupValue();
             String dedupField = sanitizeDedupField(searchQuery.getDedupField());
+            int groupLimit = Math.max(searchQuery.getDedupValue(), 1); // dedupValue 0 or 1 both mean "1 per group"
 
-            if(dedupValue > 0){ 
-                dedupValue -= 1;
-            }
-
-            StringBuilder stringBuilder = new StringBuilder();
-            stringBuilder.append("{!collapse field=")
-                            .append(dedupField)
-                            .append("}");
-            solrQuery.addFilterQuery(stringBuilder.toString());
-            if(dedupValue > 0){
-                solrQuery.add("expand", "true");
-                solrQuery.add("expand.rows", dedupValue.toString());
-            }
-        } 
+            solrQuery.set("group", true);
+            solrQuery.set("group.field", dedupField);
+            solrQuery.set("group.limit", groupLimit);
+        }
 
         // Handle type request
         if (searchQuery.isSearchByType()) {
@@ -428,13 +431,6 @@ public class SolrSearchService implements SearchService {
 
             // We always need urlTimestamp, it's where we get the collection, url and timestamp
             fieldInclusivity.put("urlTimestamp", true);
-
-
-            // If we're deduping we'll need to get the dedup field to get the expand from solr 
-            if (searchQuery.getDedupValue() > 1){
-                String dedupField = sanitizeDedupField(searchQuery.getDedupField());
-                fieldInclusivity.put(dedupField, true);
-            }
 
             needsSnippet = false;
             for (String field : requestedFields) {
@@ -540,7 +536,7 @@ public class SolrSearchService implements SearchService {
 
     /**
      * Converts the API request into the query that counts the matching documents per year. It carries the same filters
-     * as the search itself, but not the deduplication: collapsing is a costly post filter (it multiplies the time of
+     * as the search itself, but not the deduplication: grouping is a costly post filter (it multiplies the time of
      * the facet by an order of magnitude) and it would leave the counts of the query no longer comparable with the
      * counts of the whole archive that normalize them into the impact.
      *
@@ -550,19 +546,9 @@ public class SolrSearchService implements SearchService {
     SolrQuery convertTimelineQuery(SearchQuery searchQuery) {
         SolrQuery solrQuery = convertSearchQuery(searchQuery);
 
-        String[] filterQueries = solrQuery.getFilterQueries();
-        if (filterQueries != null) {
-            String[] withoutCollapse = Arrays.stream(filterQueries)
-                    .filter(filterQuery -> !filterQuery.startsWith("{!collapse"))
-                    .toArray(String[]::new);
-            if (withoutCollapse.length == 0) {
-                solrQuery.remove("fq");
-            } else {
-                solrQuery.setFilterQueries(withoutCollapse);
-            }
-        }
-        solrQuery.remove("expand");
-        solrQuery.remove("expand.rows");
+        solrQuery.remove("group");
+        solrQuery.remove("group.field");
+        solrQuery.remove("group.limit");
         // Counting documents per year has no use for how they are scored
         solrQuery.remove("boost");
 
@@ -900,13 +886,10 @@ public class SolrSearchService implements SearchService {
         SearchResults searchResults = new SearchResults();
         ArrayList<SearchResult> searchResultArrayList = new ArrayList<>();
 
-        SolrDocumentList solrDocumentList = queryResponse.getResults();
-
         final Long to, from;
         final String[] siteSearchSurts;
         final String[] collectionSearch;
         final String[] replyFields;
-        final Map<String, SolrDocumentList> expandedResults = queryResponse.getExpandedResults();
 
         int titleMaxLength = searchQuery.getTitleMaxLength();
         int snippetMaxLength = searchQuery.getSnippetMaxLength();
@@ -932,7 +915,7 @@ public class SolrSearchService implements SearchService {
             siteSearchSurts = null;
         }
 
-        // Check if the request is time-bounded 
+        // Check if the request is time-bounded
         if (searchQuery.getFrom() != null) {
             from = Long.parseLong(Utils.canocalizeTimestamp(searchQuery.getFrom()));
         } else {
@@ -951,42 +934,42 @@ public class SolrSearchService implements SearchService {
             collectionSearch = null;
         }
 
-        for (SolrDocument doc : solrDocumentList) {
+        // Grouping (dedup) returns docs bucketed per group instead of a flat list; flatten them back into a single
+        // ordered list of docs, group by group, so the rest of the pipeline can stay group-agnostic.
+        GroupResponse groupResponse = queryResponse.getGroupResponse();
+        List<SolrDocument> orderedDocs = new ArrayList<>();
+        long estimatedNumberResults;
+        int numberResults;
+
+        if (groupResponse != null && !groupResponse.getValues().isEmpty()) {
+            GroupCommand groupCommand = groupResponse.getValues().get(0);
+            for (Group group : groupCommand.getValues()) {
+                orderedDocs.addAll(group.getResult());
+            }
+            // matches (not the exact distinct-group count) on purpose: group.ngroups is not requested, since
+            // computing it is far more expensive across a sharded collection, and this is only ever shown to
+            // the user as an approximate count of results, not a hard total.
+            estimatedNumberResults = groupCommand.getMatches();
+            numberResults = groupCommand.getValues().size();
+        } else {
+            SolrDocumentList solrDocumentList = queryResponse.getResults();
+            orderedDocs.addAll(solrDocumentList);
+            estimatedNumberResults = solrDocumentList.getNumFound();
+            numberResults = solrDocumentList.size();
+        }
+
+        for (SolrDocument doc : orderedDocs) {
 
             SearchResultSolrImpl searchResult = getSearchResultfromSolrDocument(doc,queryResponse,to,from,siteSearchSurts,collectionSearch,replyFields,titleMaxLength,snippetMaxLength);
             if(searchResult == null){
                 continue;
             }
             searchResultArrayList.add(searchResult);
-            
-            if (expandedResults != null && expandedResults.size() > 0) {
-                
-                String dedupField = sanitizeDedupField(searchQuery.getDedupField());
-                String expandedDedupValue = (String) doc.getFieldValue(dedupField);
-                if (expandedDedupValue == null || !expandedResults.containsKey(expandedDedupValue)) {
-                    continue;
-                }
-
-                Iterator<?> expandedDocumentIterator = expandedResults.get(expandedDedupValue).iterator();
-                while(expandedDocumentIterator.hasNext()){
-                    Object next = expandedDocumentIterator.next();
-                    if (!(next instanceof SolrDocument)) {
-                        continue;
-                    }
-                    SolrDocument expandedDoc = (SolrDocument) next;
-
-                    SearchResultSolrImpl expandedResult = getSearchResultfromSolrDocument(expandedDoc,queryResponse,to,from,siteSearchSurts,collectionSearch,replyFields,titleMaxLength,snippetMaxLength);
-                    if(expandedResult == null){
-                        continue;
-                    }
-                    searchResultArrayList.add(expandedResult);
-                }
-            }
-
         }
+
         searchResults.setResults(searchResultArrayList);
-        searchResults.setEstimatedNumberResults(queryResponse.getResults().getNumFound());
-        searchResults.setNumberResults(queryResponse.getResults().size());
+        searchResults.setEstimatedNumberResults(estimatedNumberResults);
+        searchResults.setNumberResults(numberResults);
 
         if (searchQuery.isSpellcheck()) {
             searchResults.setSuggestedQuery(parseSuggestedQuery(queryResponse, searchQuery));

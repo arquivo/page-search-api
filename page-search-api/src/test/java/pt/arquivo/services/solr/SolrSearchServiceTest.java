@@ -10,11 +10,13 @@ import org.apache.solr.client.solrj.util.ClientUtils;
 import org.apache.solr.common.SolrDocument;
 import org.apache.solr.common.SolrDocumentList;
 import org.apache.solr.common.util.NamedList;
+import org.apache.solr.common.util.SimpleOrderedMap;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import pt.arquivo.services.SearchQuery;
 import pt.arquivo.services.SearchQueryImpl;
+import pt.arquivo.services.SearchResult;
 import pt.arquivo.services.SearchResultSolrImpl;
 import pt.arquivo.services.SearchResults;
 import pt.arquivo.services.SearchServiceConfiguration;
@@ -242,14 +244,40 @@ public class SolrSearchServiceTest {
     }
 
     @Test
-    public void convertSearchQuery_collapsesOnTheSanitizedDedupField() {
+    public void convertSearchQuery_groupsOnTheSanitizedDedupField() {
         // dedupField=collection used to be passed straight through to Solr as {!collapse field=collection}, but
         // "collection" isn't a real Solr field (only "collectionOldest" is), which made Solr reject the query
         SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
         searchQuery.setDedupField("collection");
         searchQuery.setDedupValue(2);
         SolrQuery solrQuery = service.convertSearchQuery(searchQuery);
-        assertThat(solrQuery.getFilterQueries()).contains("{!collapse field=collectionOldest}");
+        assertThat(solrQuery.getBool("group")).isTrue();
+        assertThat(solrQuery.get("group.field")).isEqualTo("collectionOldest");
+        assertThat(solrQuery.get("group.limit")).isEqualTo("2");
+        // group.ngroups is deliberately not requested: computing an exact cross-shard distinct-group count is far
+        // more expensive than the search itself (see arquivo/pwa-technologies#1624 performance follow-up)
+        assertThat(solrQuery.get("group.ngroups")).isNull();
+    }
+
+    @Test
+    public void convertSearchQuery_dedupValueZeroOrOneMeansOneResultPerGroup() {
+        SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setDedupValue(0);
+        assertThat(service.convertSearchQuery(searchQuery).get("group.limit")).isEqualTo("1");
+
+        searchQuery.setDedupValue(1);
+        assertThat(service.convertSearchQuery(searchQuery).get("group.limit")).isEqualTo("1");
+    }
+
+    @Test
+    public void convertSearchQuery_dedupValueMinusOneDisablesGrouping() {
+        SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setDedupValue(-1);
+        SolrQuery solrQuery = service.convertSearchQuery(searchQuery);
+        assertThat(solrQuery.get("group")).isNull();
+        assertThat(solrQuery.get("group.field")).isNull();
+        assertThat(solrQuery.get("group.limit")).isNull();
+        assertThat(solrQuery.get("group.ngroups")).isNull();
     }
 
     @Test
@@ -335,16 +363,16 @@ public class SolrSearchServiceTest {
     public void timelineQueryIsNotDeduplicated() {
         SearchQuery searchQuery = timelineQuery();
 
-        // The search collapses on the dedup field, which is a costly post filter and would leave the yearly counts no
+        // The search groups on the dedup field, which is a costly post filter and would leave the yearly counts no
         // longer comparable with the counts of the whole archive
-        assertThat(service.convertSearchQuery(searchQuery).getFilterQueries())
-                .anyMatch(filterQuery -> filterQuery.startsWith("{!collapse"));
+        assertThat(service.convertSearchQuery(searchQuery).getBool("group")).isTrue();
 
         SolrQuery timelineQuery = service.convertTimelineQuery(searchQuery);
-        assertThat(timelineQuery.getFilterQueries())
-                .containsExactly("-blocked:1")
-                .noneMatch(filterQuery -> filterQuery.startsWith("{!collapse"));
-        assertThat(timelineQuery.get("expand")).isNull();
+        assertThat(timelineQuery.getFilterQueries()).containsExactly("-blocked:1");
+        assertThat(timelineQuery.get("group")).isNull();
+        assertThat(timelineQuery.get("group.field")).isNull();
+        assertThat(timelineQuery.get("group.limit")).isNull();
+        assertThat(timelineQuery.get("group.ngroups")).isNull();
     }
 
     @Test
@@ -357,8 +385,8 @@ public class SolrSearchServiceTest {
 
         assertThat(timelineQuery.getQuery()).isEqualTo("eleições");
         assertThat(timelineQuery.getFilterQueries())
-                .contains("type:application\\/pdf", "collections:AWP1")
-                .noneMatch(filterQuery -> filterQuery.startsWith("{!collapse"));
+                .contains("type:application\\/pdf", "collections:AWP1");
+        assertThat(timelineQuery.get("group")).isNull();
     }
 
     @Test
@@ -973,5 +1001,67 @@ public class SolrSearchServiceTest {
 
         assertThat(results.getResults()).hasSize(1);
         assertThat(((SearchResultSolrImpl) results.getResults().get(0)).getSnippet()).isNull();
+    }
+
+    /**
+     * Builds a grouped QueryResponse matching the exact "grouped" NamedList shape solrj expects (confirmed by
+     * reading QueryResponse#extractGroupedInfo): field -&gt; {matches, groups: [{groupValue, doclist}, ...]}.
+     * ngroups is deliberately never included: group.ngroups isn't requested (see convertSearchQuery), since exact
+     * cross-shard distinct-group counting is far more expensive than the search itself.
+     */
+    private static QueryResponse queryResponseWithGroups(String groupField, int matches, List<SolrDocument[]> groups) {
+        ArrayList<Object> groupsArr = new ArrayList<>();
+        for (SolrDocument[] groupDocs : groups) {
+            SolrDocumentList doclist = new SolrDocumentList();
+            doclist.addAll(Arrays.asList(groupDocs));
+            doclist.setNumFound(groupDocs.length);
+
+            SimpleOrderedMap<Object> grpMap = new SimpleOrderedMap<>();
+            grpMap.add("groupValue", groupDocs.length > 0 ? groupDocs[0].getFieldValue("id") : null);
+            grpMap.add("doclist", doclist);
+            groupsArr.add(grpMap);
+        }
+
+        SimpleOrderedMap<Object> fieldGroups = new SimpleOrderedMap<>();
+        fieldGroups.add("matches", matches);
+        fieldGroups.add("groups", groupsArr);
+
+        NamedList<Object> grouped = new NamedList<>();
+        grouped.add(groupField, fieldGroups);
+
+        NamedList<Object> response = new NamedList<>();
+        response.add("grouped", grouped);
+        response.add("highlighting", new NamedList<>());
+        // No highlighting snippet is set on the test docs, so getHighlightedText falls back to a second Solr query
+        // for the raw content, made through the same mocked client/response; give it an empty (but non-null)
+        // "response" doclist to satisfy that fallback path, since a real grouped response wouldn't hit it either
+        // (the docs would normally carry snippet fields already).
+        SolrDocumentList emptyDocList = new SolrDocumentList();
+        emptyDocList.setNumFound(0);
+        response.add("response", emptyDocList);
+
+        QueryResponse queryResponse = new QueryResponse();
+        queryResponse.setResponse(response);
+        return queryResponse;
+    }
+
+    @Test
+    public void query_groupedResponse_flattensGroupsInOrderAndUsesMatchesForEstimatedCount() throws Exception {
+        SolrDocument doc1 = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path1");
+        SolrDocument doc2 = docWithUrlTimestamp("doc-2", "COLLECTION1/20190101010101/(com,other,)/path2");
+        SolrDocument doc3 = docWithUrlTimestamp("doc-3", "COLLECTION1/20190101010101/(com,third,)/path3");
+        QueryResponse queryResponse = queryResponseWithGroups("titleOldest", 42,
+                Arrays.asList(new SolrDocument[]{doc1}, new SolrDocument[]{doc2, doc3}));
+
+        HttpSolrClient solrClient = mock(HttpSolrClient.class);
+        when(solrClient.query(any(SolrQuery.class))).thenReturn(queryResponse);
+        service.solrClient = solrClient;
+
+        SearchResults results = service.query(new SearchQueryImpl("sapo"));
+
+        assertThat(results.getEstimatedNumberResults()).isEqualTo(42);
+        assertThat(results.getNumberResults()).isEqualTo(2);
+        assertThat(results.getResults()).extracting(SearchResult::getId)
+                .containsExactly("doc-1", "doc-2", "doc-3");
     }
 }
