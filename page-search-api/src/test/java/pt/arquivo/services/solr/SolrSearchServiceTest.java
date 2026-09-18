@@ -1064,4 +1064,56 @@ public class SolrSearchServiceTest {
         assertThat(results.getResults()).extracting(SearchResult::getId)
                 .containsExactly("doc-1", "doc-2", "doc-3");
     }
+
+    private static SearchResultSolrImpl resultWithHostKey(String id, String hostKey) {
+        SearchResultSolrImpl result = new SearchResultSolrImpl();
+        result.setId(id);
+        result.setHostKey(hostKey);
+        return result;
+    }
+
+    @Test
+    public void diversifyByHost_defersResultsPastTheCapToTheEndKeepingTheirRelativeOrder() {
+        List<SearchResult> results = Arrays.asList(
+                resultWithHostKey("a1", "hostA"),
+                resultWithHostKey("a2", "hostA"),
+                resultWithHostKey("b1", "hostB"),
+                resultWithHostKey("a3", "hostA"),
+                resultWithHostKey("a4", "hostA"),
+                resultWithHostKey("b2", "hostB"),
+                resultWithHostKey("a5", "hostA")
+        );
+
+        List<SearchResult> diversified = service.diversifyByHost(results);
+
+        // hostA hits its cap (3) at a3; a4 and a5 get pushed after every other result, in their original order
+        assertThat(diversified).extracting(SearchResult::getId)
+                .containsExactly("a1", "a2", "b1", "a3", "b2", "a4", "a5");
+    }
+
+    @Test
+    public void diversifyByHost_underTheCapKeepsOriginalOrder() {
+        List<SearchResult> results = Arrays.asList(
+                resultWithHostKey("a1", "hostA"),
+                resultWithHostKey("b1", "hostB"),
+                resultWithHostKey("a2", "hostA")
+        );
+
+        assertThat(service.diversifyByHost(results)).extracting(SearchResult::getId)
+                .containsExactly("a1", "b1", "a2");
+    }
+
+    @Test
+    public void diversifyByHost_neverDefersResultsWithoutAHostKey() {
+        List<SearchResult> results = Arrays.asList(
+                resultWithHostKey("a1", "hostA"),
+                resultWithHostKey("a2", "hostA"),
+                resultWithHostKey("a3", "hostA"),
+                resultWithHostKey("a4", "hostA"),
+                resultWithHostKey("none", null)
+        );
+
+        assertThat(service.diversifyByHost(results)).extracting(SearchResult::getId)
+                .containsExactly("a1", "a2", "a3", "none", "a4");
+    }
 }

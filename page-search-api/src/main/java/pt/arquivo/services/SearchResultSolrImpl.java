@@ -47,6 +47,10 @@ public class SearchResultSolrImpl implements SearchResult {
     // Max time (ms) Solr is allowed to spend processing a query (timeAllowed param)
     private int timeAllowed = 60000;
 
+    // The host/domain portion of the result's surt, used only internally to spread out same-host results across a
+    // page (see SolrSearchService#diversifyByHost); never part of the API response.
+    private String hostKey;
+
     public String getTitle() {
         return title;
     }
@@ -264,6 +268,15 @@ public class SearchResultSolrImpl implements SearchResult {
 
     public void setTimeAllowed(int timeAllowed) {
         this.timeAllowed = timeAllowed;
+    }
+
+    @JsonIgnore
+    public String getHostKey() {
+        return hostKey;
+    }
+
+    public void setHostKey(String hostKey) {
+        this.hostKey = hostKey;
     }
 
     public String[] getFields() {

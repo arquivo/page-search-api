@@ -872,6 +872,7 @@ public class SolrSearchService implements SearchService {
         populateSearchResult(searchResult, queryResponse, doc, oldestUrl, oldestTimestamp, oldestCollection, replyFields, titleMaxLength, snippetMaxLength);
         searchResult.setSolrClient(this.solrClient);
         searchResult.setTimeAllowed(this.timeAllowed);
+        searchResult.setHostKey(timestampSurtToSurt(oldestUrlTimestamp).split("\\)")[0]);
         return searchResult;
     }
 
@@ -967,7 +968,7 @@ public class SolrSearchService implements SearchService {
             searchResultArrayList.add(searchResult);
         }
 
-        searchResults.setResults(searchResultArrayList);
+        searchResults.setResults(diversifyByHost(searchResultArrayList));
         searchResults.setEstimatedNumberResults(estimatedNumberResults);
         searchResults.setNumberResults(numberResults);
 
@@ -976,6 +977,43 @@ public class SolrSearchService implements SearchService {
         }
 
         return searchResults;
+    }
+
+    /** How many results from the same host/domain are allowed to appear on a page before the rest get pushed later. */
+    private static final int MAX_RESULTS_PER_HOST = 3;
+
+    /**
+     * Reorders results so that no more than {@link #MAX_RESULTS_PER_HOST} of them share the same host/domain
+     * (the {@link SearchResultSolrImpl#getHostKey() hostKey}), so a page isn't dominated by many pages from the same
+     * site even after title-deduping. This only reorders the page already fetched from Solr: it doesn't drop or
+     * fetch any result, it just pushes the extras from an over-represented host towards the end of the page, after
+     * every other result, keeping their relative order among themselves.
+     *
+     * @param results the results for this page, in ranking order
+     * @return the same results, reordered
+     */
+    ArrayList<SearchResult> diversifyByHost(List<SearchResult> results) {
+        ArrayList<SearchResult> kept = new ArrayList<>(results.size());
+        List<SearchResult> deferred = new ArrayList<>();
+        Map<String, Integer> perHostCount = new Hashtable<>();
+
+        for (SearchResult result : results) {
+            String hostKey = (result instanceof SearchResultSolrImpl) ? ((SearchResultSolrImpl) result).getHostKey() : null;
+            if (hostKey == null) {
+                kept.add(result);
+                continue;
+            }
+            int count = perHostCount.getOrDefault(hostKey, 0);
+            if (count < MAX_RESULTS_PER_HOST) {
+                perHostCount.put(hostKey, count + 1);
+                kept.add(result);
+            } else {
+                deferred.add(result);
+            }
+        }
+
+        kept.addAll(deferred);
+        return kept;
     }
 
     /**
