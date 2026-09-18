@@ -233,6 +233,9 @@ public class SolrSearchService implements SearchService {
     SolrQuery convertSearchQuery(SearchQuery searchQuery) {
         SolrQuery solrQuery = new SolrQuery();
         solrQuery.set("shards.tolerant", "true");
+        // Require every query term to match so that adding terms narrows results (Solr/edismax default to OR,
+        // which only ever grows the result set as more terms are added)
+        solrQuery.set("q.op", "AND");
         applyTimeAllowed(solrQuery);
 
         if(searchQuery.getQueryTerms() == null){

@@ -184,6 +184,14 @@ public class SolrSearchServiceTest {
     }
 
     @Test
+    public void convertSearchQuery_requiresAllTermsToMatch() {
+        // Solr/edismax default to OR between terms, which only ever grows the result set as more terms are
+        // added; the API forces AND so that additional terms narrow the search instead
+        SolrQuery solrQuery = service.convertSearchQuery(new SearchQueryImpl("Lisboa Porto"));
+        assertThat(solrQuery.get("q.op")).isEqualTo("AND");
+    }
+
+    @Test
     public void convertSearchQuery_neverServesBlockedDocuments() {
         SolrQuery solrQuery = service.convertSearchQuery(new SearchQueryImpl("sapo"));
         assertThat(solrQuery.getFilterQueries()).contains("-blocked:1");
