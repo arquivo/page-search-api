@@ -412,6 +412,43 @@ public class SolrSearchServiceTest {
     }
 
     @Test
+    public void collectionRequest_trailingWildcardBecomesAPrefixQuery() {
+        SearchQuery searchQuery = new SearchQueryImpl("eleições");
+        searchQuery.setCollection(new String[]{"FAWP*"});
+
+        SolrQuery solrQuery = service.convertSearchQuery(searchQuery);
+
+        assertThat(solrQuery.getFilterQueries()).contains("collections:FAWP*");
+    }
+
+    @Test
+    public void collectionRequest_multipleCollectionsCanMixExactAndWildcard() {
+        SearchQuery searchQuery = new SearchQueryImpl("eleições");
+        searchQuery.setCollection(new String[]{"FAWP*", "MAWP*"});
+
+        SolrQuery solrQuery = service.convertSearchQuery(searchQuery);
+
+        assertThat(solrQuery.getFilterQueries()).contains("collections:FAWP* OR collections:MAWP*");
+    }
+
+    @Test
+    public void collectionFilterTerm_escapesSpecialCharsButKeepsATrailingWildcard() {
+        assertThat(SolrSearchService.collectionFilterTerm("FAWP1")).isEqualTo("FAWP1");
+        assertThat(SolrSearchService.collectionFilterTerm("FAWP*")).isEqualTo("FAWP*");
+        // A "*" that isn't trailing is escaped like any other special char, only a trailing "*" is a wildcard
+        assertThat(SolrSearchService.collectionFilterTerm("FA*WP")).isEqualTo("FA\\*WP");
+    }
+
+    @Test
+    public void collectionMatches_trailingWildcardMatchesByPrefix() {
+        assertThat(SolrSearchService.collectionMatches("FAWP12", new String[]{"FAWP*"})).isTrue();
+        assertThat(SolrSearchService.collectionMatches("MAWP12", new String[]{"FAWP*"})).isFalse();
+        assertThat(SolrSearchService.collectionMatches("FAWP1", new String[]{"FAWP1"})).isTrue();
+        assertThat(SolrSearchService.collectionMatches("FAWP12", new String[]{"FAWP1"})).isFalse();
+        assertThat(SolrSearchService.collectionMatches("MAWP1", new String[]{"FAWP*", "MAWP*"})).isTrue();
+    }
+
+    @Test
     public void yearBalanceBoostsTheThinYears() {
         SearchQuery searchQuery = new SearchQueryImpl("eleições");
         searchQuery.setYearBalance(1.0);
@@ -575,6 +612,19 @@ public class SolrSearchServiceTest {
         List<Object> result = service.filterUrlTimestamps(urlstimestamps, null, null, null,
                 new String[] { "COLLECTION1" });
         assertThat(result).containsExactly("COLLECTION1/20190101000000/(com,example,)/path1");
+    }
+
+    @Test
+    public void filterUrlTimestamps_filtersByCollectionWithTrailingWildcard() {
+        List<Object> urlstimestamps = new ArrayList<>(Arrays.asList(
+                "FAWP1/20190101000000/(com,example,)/path1",
+                "FAWP34/20190101000000/(com,example,)/path2",
+                "MAWP1/20190101000000/(com,example,)/path3"));
+        List<Object> result = service.filterUrlTimestamps(urlstimestamps, null, null, null,
+                new String[] { "FAWP*" });
+        assertThat(result).containsExactly(
+                "FAWP1/20190101000000/(com,example,)/path1",
+                "FAWP34/20190101000000/(com,example,)/path2");
     }
 
     @Test
