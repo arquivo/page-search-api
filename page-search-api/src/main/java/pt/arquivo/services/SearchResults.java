@@ -38,7 +38,7 @@ public class SearchResults {
         this.lastPageResults = lastPageResults;
     }
 
-    private ArrayList<SearchResult> results;
+    private ArrayList<SearchResult> results = new ArrayList<>();
 
     public ArrayList<SearchResult> getResults() {
         return results;
