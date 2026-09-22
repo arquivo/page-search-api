@@ -709,7 +709,7 @@ public class SolrSearchServiceTest {
         assertThat(results.getEstimatedNumberResults()).isEqualTo(0);
         assertThat(results.getNumberResults()).isEqualTo(0);
         assertThat(results.isLastPageResults()).isFalse();
-        assertThat(results.getResults()).isNull();
+        assertThat(results.getResults()).isNotNull().isEmpty();
     }
 
     @Test
@@ -998,6 +998,9 @@ public class SolrSearchServiceTest {
         verify(solrClient, never()).query(any(SolrQuery.class));
         assertThat(results.getNumberResults()).isEqualTo(0);
         assertThat(results.getEstimatedNumberResults()).isEqualTo(0);
+        // Regression: this used to leave getResults() null (setResults() was never called on this early-return
+        // path), NPEing in PageSearchController#extractedText's searchResultsArray.size() call
+        assertThat(results.getResults()).isNotNull().isEmpty();
     }
 
     @Test
