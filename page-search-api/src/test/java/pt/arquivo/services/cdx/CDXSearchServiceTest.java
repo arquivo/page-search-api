@@ -184,6 +184,26 @@ public class CDXSearchServiceTest {
     }
 
     @Test
+    public void getCollectionForExactMatch_firstLineMissingCollection_scansLaterLines() throws Exception {
+        // Real CDX behavior: the same exact url+timestamp capture can be indexed by more than one source cdxj
+        // file (e.g. an aggregate "Others.cdxj" alongside a per-collection one), and only some of those lines
+        // carry a "collection" field. Trusting line 1 alone previously made a page that's actually archived
+        // report as not found.
+        String cdxJson = "{\"urlkey\":\"pt,fccn)/\",\"timestamp\":\"19961013145650\","
+                + "\"url\":\"http://www.fccn.pt:80/\",\"source\":\"cdx_folder:Others.cdxj\"}\n"
+                + "{\"urlkey\":\"pt,fccn)/\",\"timestamp\":\"19961013145650\","
+                + "\"url\":\"http://www.fccn.pt:80/\",\"collection\":\"Roteiro\","
+                + "\"source\":\"cdx_folder:Roteiro.cdxj\"}\n";
+
+        CDXSearchService spy = spy(cdxSearchService);
+        doReturn(connectionReturning(cdxJson)).when(spy).openCdxConnection(anyString(), anyInt(), anyInt());
+
+        String collection = spy.getCollectionForExactMatch("http://www.fccn.pt", "19961013145650", 1000);
+
+        assertThat(collection).isEqualTo("Roteiro");
+    }
+
+    @Test
     public void getCollectionForExactMatch_connectionThrows_returnsNull() throws Exception {
         CDXSearchService spy = spy(cdxSearchService);
         doThrow(new IOException("timed out")).when(spy).openCdxConnection(anyString(), anyInt(), anyInt());
