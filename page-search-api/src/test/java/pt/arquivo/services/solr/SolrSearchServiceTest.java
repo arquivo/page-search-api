@@ -390,6 +390,28 @@ public class SolrSearchServiceTest {
     }
 
     @Test
+    public void collectionRequest_singleCollectionIsExactMatch() {
+        SearchQuery searchQuery = new SearchQueryImpl("eleições");
+        searchQuery.setCollection(new String[]{"FAWP1"});
+
+        SolrQuery solrQuery = service.convertSearchQuery(searchQuery);
+
+        assertThat(solrQuery.getFilterQueries()).contains("collections:FAWP1");
+    }
+
+    @Test
+    public void collectionRequest_multipleExactCollectionsEachRepeatTheFieldName() {
+        SearchQuery searchQuery = new SearchQueryImpl("eleições");
+        searchQuery.setCollection(new String[]{"FAWP1", "MAWP1"});
+
+        SolrQuery solrQuery = service.convertSearchQuery(searchQuery);
+
+        // Each term must repeat "collections:", otherwise the second term is evaluated against the default query
+        // field instead of "collections"
+        assertThat(solrQuery.getFilterQueries()).contains("collections:FAWP1 OR collections:MAWP1");
+    }
+
+    @Test
     public void yearBalanceBoostsTheThinYears() {
         SearchQuery searchQuery = new SearchQueryImpl("eleições");
         searchQuery.setYearBalance(1.0);

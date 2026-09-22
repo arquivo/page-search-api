@@ -256,11 +256,13 @@ public class SolrSearchService implements SearchService {
         if (searchQuery.isSearchByCollection()) {
             boolean multipleCollection = false;
             StringBuilder stringBuilder = new StringBuilder();
-            stringBuilder.append("collections:");
+            // "collections:" is repeated per term (like the "type" filter below), not just once at the start: a
+            // bare " OR <term>" without the field name would evaluate that term against the default query field
+            // instead of "collections".
             for (String collection : searchQuery.getCollection()) {
                 if (multipleCollection)
                     stringBuilder.append(" OR ");
-                stringBuilder.append(ClientUtils.escapeQueryChars(collection));
+                stringBuilder.append("collections:").append(ClientUtils.escapeQueryChars(collection));
                 multipleCollection = true;
             }
             solrQuery.addFilterQuery(stringBuilder.toString());
