@@ -28,6 +28,10 @@ public class SearchQueryImpl implements SearchQuery {
     @JsonProperty("maxItems")
     private int maxItems = 50;
 
+    private int titleMaxLength = 300;
+
+    private int snippetMaxLength = 300;
+
     // TODO decreprated field
     @JsonIgnore
     private Integer limitPerSite;
@@ -114,6 +118,22 @@ public class SearchQueryImpl implements SearchQuery {
         } else {
             this.maxItems = maxItems;
         }
+    }
+
+    public int getTitleMaxLength() {
+        return titleMaxLength;
+    }
+
+    public void setTitleMaxLength(int titleMaxLength) {
+        this.titleMaxLength = Math.max(titleMaxLength, 0);
+    }
+
+    public int getSnippetMaxLength() {
+        return snippetMaxLength;
+    }
+
+    public void setSnippetMaxLength(int snippetMaxLength) {
+        this.snippetMaxLength = Math.max(snippetMaxLength, 0);
     }
 
     public Integer getLimitPerSite() {

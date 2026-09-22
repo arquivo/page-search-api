@@ -20,6 +20,9 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
+import org.apache.solr.client.solrj.response.Group;
+import org.apache.solr.client.solrj.response.GroupCommand;
+import org.apache.solr.client.solrj.response.GroupResponse;
 import org.apache.solr.client.solrj.response.QueryResponse;
 import org.apache.solr.client.solrj.response.SpellCheckResponse;
 import org.apache.solr.client.solrj.util.ClientUtils;
@@ -91,8 +94,8 @@ public class SolrSearchService implements SearchService {
     private long yearVolumesTtlMillis = 86400000L;
 
     /** Max time (ms) Solr is allowed to spend processing a single query, so slow queries don't overwhelm it. */
-    @Value("${searchpages.solr.timeallowed.ms:10000}")
-    private int timeAllowed = 10000;
+    @Value("${searchpages.solr.timeallowed.ms:60000}")
+    private int timeAllowed = 60000;
 
     /**
      * Used by queryByUrl to resolve a document's collection. Optional: when CDX isn't wired in (or not
@@ -258,6 +261,9 @@ public class SolrSearchService implements SearchService {
     SolrQuery convertSearchQuery(SearchQuery searchQuery) {
         SolrQuery solrQuery = new SolrQuery();
         solrQuery.set("shards.tolerant", "true");
+        // Require every query term to match so that adding terms narrows results (Solr/edismax default to OR,
+        // which only ever grows the result set as more terms are added)
+        solrQuery.set("q.op", "AND");
         applyTimeAllowed(solrQuery);
 
         if(searchQuery.getQueryTerms() == null){
@@ -267,6 +273,9 @@ public class SolrSearchService implements SearchService {
         }
         solrQuery.setStart(searchQuery.getOffset()); // No need to escape because offset and maxItems are integers
         solrQuery.setRows(searchQuery.getMaxItems());
+
+        // Never surface blocked content
+        solrQuery.addFilterQuery("-blocked:1");
 
         // Handle collection request:
         if (searchQuery.isSearchByCollection()) {
@@ -351,25 +360,25 @@ public class SolrSearchService implements SearchService {
             solrQuery.addFilterQuery(stringBuilder.toString());
         }
 
-        // Handle deduplication:
+        // Handle deduplication: Solr result grouping does the merging correctly across every shard (unlike
+        // {!collapse}, which only collapsed within a single shard, see arquivo/pwa-technologies#1624), so it doubles
+        // as the dedup mechanism. group.main is deliberately left unset: parseQueryResponse needs the per-group
+        // breakdown (matches/groups/doclist), not the flattened group.main=true shape, to rebuild pagination and
+        // ordering itself.
+        //
+        // group.ngroups is deliberately NOT set: it asks every shard to enumerate its full set of distinct
+        // group.field values so they can be merged into an exact cross-shard count, which is by far the most
+        // expensive part of distributed grouping (measured ~70x slower than plain group=true against the dev Solr,
+        // 12 shards). estimatedNumberResults is only ever shown to users as an approximate count, so
+        // parseQueryResponse uses the (already-computed as part of the search itself) matches count instead.
         if (searchQuery.getDedupValue() >= 0){ //deduplication disabled if dedupValue == -1
-            Integer dedupValue = searchQuery.getDedupValue();
             String dedupField = sanitizeDedupField(searchQuery.getDedupField());
+            int groupLimit = Math.max(searchQuery.getDedupValue(), 1); // dedupValue 0 or 1 both mean "1 per group"
 
-            if(dedupValue > 0){ 
-                dedupValue -= 1;
-            }
-
-            StringBuilder stringBuilder = new StringBuilder();
-            stringBuilder.append("{!collapse field=")
-                            .append(dedupField)
-                            .append("}");
-            solrQuery.addFilterQuery(stringBuilder.toString());
-            if(dedupValue > 0){
-                solrQuery.add("expand", "true");
-                solrQuery.add("expand.rows", dedupValue.toString());
-            }
-        } 
+            solrQuery.set("group", true);
+            solrQuery.set("group.field", dedupField);
+            solrQuery.set("group.limit", groupLimit);
+        }
 
         // Handle type request
         if (searchQuery.isSearchByType()) {
@@ -448,13 +457,6 @@ public class SolrSearchService implements SearchService {
             // We always need urlTimestamp, it's where we get the collection, url and timestamp
             fieldInclusivity.put("urlTimestamp", true);
 
-
-            // If we're deduping we'll need to get the dedup field to get the expand from solr 
-            if (searchQuery.getDedupValue() > 1){
-                String dedupField = sanitizeDedupField(searchQuery.getDedupField());
-                fieldInclusivity.put(dedupField, true);
-            }
-
             needsSnippet = false;
             for (String field : requestedFields) {
                 switch (field) {
@@ -500,6 +502,29 @@ public class SolrSearchService implements SearchService {
         // query rather than relying on server-side defaults (see arquivo/pwa-technologies#1609)
         solrQuery.set("hl.method", "unified");
 
+        // if snippet / highlighting is needed, configure the highlighter parameters
+        if (needsSnippet) {
+            // Caps how many characters of the content field each snippet carries, so a single match doesn't return
+            // the whole document (see arquivo/pwa-technologies#1635). 0 means "no cap", matching Solr's own meaning
+            // for hl.fragsize as well as this API's convention for titleMaxLength.
+            //
+            // hl.fragsize alone is only a hint, not a hard cap: the Unified Highlighter's default SENTENCE boundary
+            // scanner can treat a whole run of unpunctuated text (common in scraped web content) as a single
+            // "sentence" and return it in full regardless of fragsize. Using a WORD boundary scanner instead keeps
+            // fragments honoring fragsize even on such content. As a hard guarantee independent of these hints (and
+            // of whatever hl.* defaults/invariants the Solr server itself may enforce), getHighlightedText also
+            // re-clamps the assembled snippet to snippetMaxLength itself, so none of these three params are actually
+            // required for correctness anymore. They're kept anyway to stop Solr from doing the highlighting work
+            // and shipping back a much larger fragment than needed, only for it to be discarded on arrival. This
+            // isn't expected to add Solr-side query cost: fragsize/fragsizeIsMinimum only change where the
+            // highlighter, already running for this query, stops building a fragment, and WORD boundary scanning
+            // (BreakIterator.getWordInstance) is cheaper than the default SENTENCE scanning
+            // (BreakIterator.getSentenceInstance) it replaces.
+            solrQuery.set("hl.fragsize", searchQuery.getSnippetMaxLength());
+            solrQuery.set("hl.fragsizeIsMinimum", "false");
+            solrQuery.set("hl.bs.type", "WORD");
+        }
+
         // If we don't need snippet we don't ask Solr for highligting (which is on by default since v5), and a query
         // asking for no results at all has nothing to highlight either
         if(!needsSnippet || searchQuery.getMaxItems() == 0){
@@ -536,7 +561,7 @@ public class SolrSearchService implements SearchService {
 
     /**
      * Converts the API request into the query that counts the matching documents per year. It carries the same filters
-     * as the search itself, but not the deduplication: collapsing is a costly post filter (it multiplies the time of
+     * as the search itself, but not the deduplication: grouping is a costly post filter (it multiplies the time of
      * the facet by an order of magnitude) and it would leave the counts of the query no longer comparable with the
      * counts of the whole archive that normalize them into the impact.
      *
@@ -546,19 +571,9 @@ public class SolrSearchService implements SearchService {
     SolrQuery convertTimelineQuery(SearchQuery searchQuery) {
         SolrQuery solrQuery = convertSearchQuery(searchQuery);
 
-        String[] filterQueries = solrQuery.getFilterQueries();
-        if (filterQueries != null) {
-            String[] withoutCollapse = Arrays.stream(filterQueries)
-                    .filter(filterQuery -> !filterQuery.startsWith("{!collapse"))
-                    .toArray(String[]::new);
-            if (withoutCollapse.length == 0) {
-                solrQuery.remove("fq");
-            } else {
-                solrQuery.setFilterQueries(withoutCollapse);
-            }
-        }
-        solrQuery.remove("expand");
-        solrQuery.remove("expand.rows");
+        solrQuery.remove("group");
+        solrQuery.remove("group.field");
+        solrQuery.remove("group.limit");
         // Counting documents per year has no use for how they are scored
         solrQuery.remove("boost");
 
@@ -641,15 +656,27 @@ public class SolrSearchService implements SearchService {
     }
 
     /**
-     * Gets the highlighted text from the Solr "content" field to fill the API "snippet" field. If there was no text to be 
-     * hightlighted in the Solr "content" field, will use the first 500 chars of the "content" field instead.
-     * 
+     * Truncates the title to at most maxLength characters, appending an ellipsis when truncated.
+     * A maxLength of 0 or less disables truncation.
+     */
+    private static String truncateTitle(String title, int maxLength) {
+        if (maxLength <= 0 || title.length() <= maxLength) {
+            return title;
+        }
+        return title.substring(0, maxLength).trim() + "…";
+    }
+
+    /**
+     * Gets the highlighted text from the Solr "content" field to fill the API "snippet" field. If there was no text to be
+     * hightlighted in the Solr "content" field, will use the first snippetMaxLength chars of the "content" field instead.
+     *
      * @param queryResponse
      * @param fieldName
      * @param docId
+     * @param snippetMaxLength maximum number of characters of the content field fallback, 0 or less disables truncation
      * @return
      */
-    public String getHighlightedText(final QueryResponse queryResponse, final String fieldName, final String docId) {
+    public String getHighlightedText(final QueryResponse queryResponse, final String fieldName, final String docId, final int snippetMaxLength) {
         String highlightedText = "";
         Map<String, Map<String, List<String>>> highlights = queryResponse.getHighlighting();
 
@@ -659,11 +686,11 @@ public class SolrSearchService implements SearchService {
         if (fieldsSnippet != null) {
             List<String> snippets = fieldsSnippet.getOrDefault(fieldName, null);
             if (snippets != null) {
-                highlightedText = getFragments(snippets);
+                highlightedText = getFragments(snippets, snippetMaxLength);
             }
         }
 
-        // If we don't get highlighted text on the content we display the first 500 chars of the content
+        // If we don't get highlighted text on the content we display the first snippetMaxLength chars of the content
         if (highlightedText.length() == 0) {
             SolrQuery solrQuery = new SolrQuery();
             solrQuery.set("shards.tolerant", "true");
@@ -677,10 +704,10 @@ public class SolrSearchService implements SearchService {
                 if (solrDocumentList.size() > 0) {
                     String content = (String) solrDocumentList.get(0).getFieldValue("content");
                     if (content != null && content.length() > 0) {
-                        if (content.length() <= 500) {
+                        if (snippetMaxLength <= 0 || content.length() <= snippetMaxLength) {
                             highlightedText = content;
                         } else {
-                            highlightedText = content.substring(0, 500) + "<span class=\"ellipsis\"> ... </span>";
+                            highlightedText = content.substring(0, snippetMaxLength) + "<span class=\"ellipsis\"> ... </span>";
                         }
                     }
                 }
@@ -691,13 +718,38 @@ public class SolrSearchService implements SearchService {
         return highlightedText;
     }
 
-    private static final String getFragments(List<String> snippets) {
+    private static final String getFragments(List<String> snippets, int snippetMaxLength) {
         StringBuilder fragments = new StringBuilder();
         for (int i = 0; i < snippets.size(); i++) {
-            fragments.append(snippets.get(i));
+            fragments.append(truncateHighlightedFragment(snippets.get(i), snippetMaxLength));
             fragments.append("<span class=\"ellipsis\"> ... </span>");
         }
         return fragments.toString();
+    }
+
+    /**
+     * Truncates a single highlighted fragment to at most maxLength characters, guaranteeing the cap regardless of
+     * whatever the Solr highlighter itself actually honored (see arquivo/pwa-technologies#1635: hl.fragsize is only
+     * a hint to it, not a hard limit). Cuts are kept from landing inside a "<em>"/"</em>" match-highlighting tag,
+     * closing a still-open one so the markup stays valid. A maxLength of 0 or less disables truncation.
+     */
+    private static String truncateHighlightedFragment(String fragment, int maxLength) {
+        if (maxLength <= 0 || fragment.length() <= maxLength) {
+            return fragment;
+        }
+        String truncated = fragment.substring(0, maxLength);
+
+        int lastOpenBracket = truncated.lastIndexOf('<');
+        int lastCloseBracket = truncated.lastIndexOf('>');
+        if (lastOpenBracket > lastCloseBracket) {
+            truncated = truncated.substring(0, lastOpenBracket);
+        }
+
+        if (StringUtils.countMatches(truncated, "<em>") > StringUtils.countMatches(truncated, "</em>")) {
+            truncated += "</em>";
+        }
+
+        return truncated;
     }
 
     /**
@@ -820,7 +872,7 @@ public class SolrSearchService implements SearchService {
      * @param replyFields
      * @return
      */
-    private SearchResultSolrImpl getSearchResultfromSolrDocument(SolrDocument doc, QueryResponse queryResponse, Long to, Long from, String[] siteSearchSurts, String[] collectionSearch, String[] replyFields ){
+    private SearchResultSolrImpl getSearchResultfromSolrDocument(SolrDocument doc, QueryResponse queryResponse, Long to, Long from, String[] siteSearchSurts, String[] collectionSearch, String[] replyFields, int titleMaxLength, int snippetMaxLength ){
         String oldestUrl = null;
         String oldestTimestamp = null;
         String oldestCollection = null;
@@ -842,9 +894,10 @@ public class SolrSearchService implements SearchService {
         
 
         SearchResultSolrImpl searchResult = new SearchResultSolrImpl();
-        populateSearchResult(searchResult, queryResponse, doc, oldestUrl, oldestTimestamp, oldestCollection, replyFields);
+        populateSearchResult(searchResult, queryResponse, doc, oldestUrl, oldestTimestamp, oldestCollection, replyFields, titleMaxLength, snippetMaxLength);
         searchResult.setSolrClient(this.solrClient);
         searchResult.setTimeAllowed(this.timeAllowed);
+        searchResult.setHostKey(timestampSurtToSurt(oldestUrlTimestamp).split("\\)")[0]);
         return searchResult;
     }
 
@@ -859,13 +912,13 @@ public class SolrSearchService implements SearchService {
         SearchResults searchResults = new SearchResults();
         ArrayList<SearchResult> searchResultArrayList = new ArrayList<>();
 
-        SolrDocumentList solrDocumentList = queryResponse.getResults();
-
         final Long to, from;
         final String[] siteSearchSurts;
         final String[] collectionSearch;
         final String[] replyFields;
-        final Map<String, SolrDocumentList> expandedResults = queryResponse.getExpandedResults();
+
+        int titleMaxLength = searchQuery.getTitleMaxLength();
+        int snippetMaxLength = searchQuery.getSnippetMaxLength();
 
         // Check which fields the user asked for
         String[] requestedFields = resultFields(searchQuery);
@@ -888,7 +941,7 @@ public class SolrSearchService implements SearchService {
             siteSearchSurts = null;
         }
 
-        // Check if the request is time-bounded 
+        // Check if the request is time-bounded
         if (searchQuery.getFrom() != null) {
             from = Long.parseLong(Utils.canocalizeTimestamp(searchQuery.getFrom()));
         } else {
@@ -907,48 +960,85 @@ public class SolrSearchService implements SearchService {
             collectionSearch = null;
         }
 
-        for (SolrDocument doc : solrDocumentList) {
+        // Grouping (dedup) returns docs bucketed per group instead of a flat list; flatten them back into a single
+        // ordered list of docs, group by group, so the rest of the pipeline can stay group-agnostic.
+        GroupResponse groupResponse = queryResponse.getGroupResponse();
+        List<SolrDocument> orderedDocs = new ArrayList<>();
+        long estimatedNumberResults;
+        int numberResults;
 
-            SearchResultSolrImpl searchResult = getSearchResultfromSolrDocument(doc,queryResponse,to,from,siteSearchSurts,collectionSearch,replyFields);
+        if (groupResponse != null && !groupResponse.getValues().isEmpty()) {
+            GroupCommand groupCommand = groupResponse.getValues().get(0);
+            for (Group group : groupCommand.getValues()) {
+                orderedDocs.addAll(group.getResult());
+            }
+            // matches (not the exact distinct-group count) on purpose: group.ngroups is not requested, since
+            // computing it is far more expensive across a sharded collection, and this is only ever shown to
+            // the user as an approximate count of results, not a hard total.
+            estimatedNumberResults = groupCommand.getMatches();
+            numberResults = groupCommand.getValues().size();
+        } else {
+            SolrDocumentList solrDocumentList = queryResponse.getResults();
+            orderedDocs.addAll(solrDocumentList);
+            estimatedNumberResults = solrDocumentList.getNumFound();
+            numberResults = solrDocumentList.size();
+        }
+
+        for (SolrDocument doc : orderedDocs) {
+
+            SearchResultSolrImpl searchResult = getSearchResultfromSolrDocument(doc,queryResponse,to,from,siteSearchSurts,collectionSearch,replyFields,titleMaxLength,snippetMaxLength);
             if(searchResult == null){
                 continue;
             }
             searchResultArrayList.add(searchResult);
-            
-            if (expandedResults != null && expandedResults.size() > 0) {
-                
-                String dedupField = sanitizeDedupField(searchQuery.getDedupField());
-                String expandedDedupValue = (String) doc.getFieldValue(dedupField);
-                if (expandedDedupValue == null || !expandedResults.containsKey(expandedDedupValue)) {
-                    continue;
-                }
-
-                Iterator<?> expandedDocumentIterator = expandedResults.get(expandedDedupValue).iterator();
-                while(expandedDocumentIterator.hasNext()){
-                    Object next = expandedDocumentIterator.next();
-                    if (!(next instanceof SolrDocument)) {
-                        continue;
-                    }
-                    SolrDocument expandedDoc = (SolrDocument) next;
-
-                    SearchResultSolrImpl expandedResult = getSearchResultfromSolrDocument(expandedDoc,queryResponse,to,from,siteSearchSurts,collectionSearch,replyFields);
-                    if(expandedResult == null){
-                        continue;
-                    }
-                    searchResultArrayList.add(expandedResult);
-                }
-            }
-
         }
-        searchResults.setResults(searchResultArrayList);
-        searchResults.setEstimatedNumberResults(queryResponse.getResults().getNumFound());
-        searchResults.setNumberResults(queryResponse.getResults().size());
+
+        searchResults.setResults(diversifyByHost(searchResultArrayList));
+        searchResults.setEstimatedNumberResults(estimatedNumberResults);
+        searchResults.setNumberResults(numberResults);
 
         if (searchQuery.isSpellcheck()) {
             searchResults.setSuggestedQuery(parseSuggestedQuery(queryResponse, searchQuery));
         }
 
         return searchResults;
+    }
+
+    /** How many results from the same host/domain are allowed to appear on a page before the rest get pushed later. */
+    private static final int MAX_RESULTS_PER_HOST = 3;
+
+    /**
+     * Reorders results so that no more than {@link #MAX_RESULTS_PER_HOST} of them share the same host/domain
+     * (the {@link SearchResultSolrImpl#getHostKey() hostKey}), so a page isn't dominated by many pages from the same
+     * site even after title-deduping. This only reorders the page already fetched from Solr: it doesn't drop or
+     * fetch any result, it just pushes the extras from an over-represented host towards the end of the page, after
+     * every other result, keeping their relative order among themselves.
+     *
+     * @param results the results for this page, in ranking order
+     * @return the same results, reordered
+     */
+    ArrayList<SearchResult> diversifyByHost(List<SearchResult> results) {
+        ArrayList<SearchResult> kept = new ArrayList<>(results.size());
+        List<SearchResult> deferred = new ArrayList<>();
+        Map<String, Integer> perHostCount = new Hashtable<>();
+
+        for (SearchResult result : results) {
+            String hostKey = (result instanceof SearchResultSolrImpl) ? ((SearchResultSolrImpl) result).getHostKey() : null;
+            if (hostKey == null) {
+                kept.add(result);
+                continue;
+            }
+            int count = perHostCount.getOrDefault(hostKey, 0);
+            if (count < MAX_RESULTS_PER_HOST) {
+                perHostCount.put(hostKey, count + 1);
+                kept.add(result);
+            } else {
+                deferred.add(result);
+            }
+        }
+
+        kept.addAll(deferred);
+        return kept;
     }
 
     /**
@@ -991,11 +1081,12 @@ public class SolrSearchService implements SearchService {
      * @param replyFields
      */
     private void populateSearchResult(SearchResultSolrImpl searchResult, QueryResponse queryResponse, SolrDocument doc,
-            String oldestUrl, String oldestTimestamp, String oldestCollection, String[] replyFields) {
+            String oldestUrl, String oldestTimestamp, String oldestCollection, String[] replyFields, int titleMaxLength, int snippetMaxLength) {
         for (String field : replyFields) {
             switch (field) {
                 case "title":
-                    searchResult.setTitle((String) coalesce(doc.getFieldValue("titleString"), ""));
+                    String title = (String) coalesce(doc.getFieldValue("titleString"), "");
+                    searchResult.setTitle(truncateTitle(title, titleMaxLength));
                     break;
                 case "originalURL":
                     searchResult.setOriginalURL(oldestUrl);
@@ -1016,7 +1107,7 @@ public class SolrSearchService implements SearchService {
                     searchResult.setId((String) coalesce(doc.getFieldValue("id"), ""));
                     break;
                 case "snippet":
-                    searchResult.setSnippet(getHighlightedText(queryResponse, "content", (String) doc.get("id")));
+                    searchResult.setSnippet(getHighlightedText(queryResponse, "content", (String) doc.get("id"), snippetMaxLength));
                     break;
                 case "linkToArchive":
                     searchResult.setLinkToArchive(waybackServiceEndpoint + "/" + oldestTimestamp + "/" + oldestUrl);
@@ -1139,6 +1230,7 @@ public class SolrSearchService implements SearchService {
         solrQuery.set("shards.tolerant", "true");
         applyTimeAllowed(solrQuery);
         solrQuery.set("q", String.join(" OR ", solrQueryForSites));
+        solrQuery.addFilterQuery("-blocked:1");
         solrQuery.set("fl", "id,type,tstamp,urlTimestamp,surt,titleString,collection,url");
         solrQuery.set("hl", "false");
         solrQuery.set("spellcheck", "false");

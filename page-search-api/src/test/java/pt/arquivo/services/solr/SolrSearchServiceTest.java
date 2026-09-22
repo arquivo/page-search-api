@@ -1,5 +1,6 @@
 package pt.arquivo.services.solr;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
@@ -9,11 +10,13 @@ import org.apache.solr.client.solrj.util.ClientUtils;
 import org.apache.solr.common.SolrDocument;
 import org.apache.solr.common.SolrDocumentList;
 import org.apache.solr.common.util.NamedList;
+import org.apache.solr.common.util.SimpleOrderedMap;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import pt.arquivo.services.SearchQuery;
 import pt.arquivo.services.SearchQueryImpl;
+import pt.arquivo.services.SearchResult;
 import pt.arquivo.services.SearchResultSolrImpl;
 import pt.arquivo.services.SearchResults;
 import pt.arquivo.services.SearchServiceConfiguration;
@@ -87,8 +90,8 @@ public class SolrSearchServiceTest {
     }
 
     @Test
-    public void applyTimeAllowed_defaultsTo10000ms() {
-        assertThat(service.applyTimeAllowed(new SolrQuery()).get("timeAllowed")).isEqualTo("10000");
+    public void applyTimeAllowed_defaultsTo60000ms() {
+        assertThat(service.applyTimeAllowed(new SolrQuery()).get("timeAllowed")).isEqualTo("60000");
     }
 
     @Test
@@ -104,7 +107,7 @@ public class SolrSearchServiceTest {
     @Test
     public void convertSearchQuery_setsTimeAllowed() {
         SolrQuery solrQuery = service.convertSearchQuery(new SearchQueryImpl("sapo"));
-        assertThat(solrQuery.get("timeAllowed")).isEqualTo("10000");
+        assertThat(solrQuery.get("timeAllowed")).isEqualTo("60000");
     }
 
     @Test
@@ -188,6 +191,20 @@ public class SolrSearchServiceTest {
     }
 
     @Test
+    public void convertSearchQuery_requiresAllTermsToMatch() {
+        // Solr/edismax default to OR between terms, which only ever grows the result set as more terms are
+        // added; the API forces AND so that additional terms narrow the search instead
+        SolrQuery solrQuery = service.convertSearchQuery(new SearchQueryImpl("Lisboa Porto"));
+        assertThat(solrQuery.get("q.op")).isEqualTo("AND");
+    }
+
+    @Test
+    public void convertSearchQuery_neverServesBlockedDocuments() {
+        SolrQuery solrQuery = service.convertSearchQuery(new SearchQueryImpl("sapo"));
+        assertThat(solrQuery.getFilterQueries()).contains("-blocked:1");
+    }
+
+    @Test
     public void convertSearchQuery_defaultsToMatchAllWhenNoQueryTerms() {
         SearchQueryImpl searchQuery = new SearchQueryImpl(null);
         SolrQuery solrQuery = service.convertSearchQuery(searchQuery);
@@ -232,14 +249,40 @@ public class SolrSearchServiceTest {
     }
 
     @Test
-    public void convertSearchQuery_collapsesOnTheSanitizedDedupField() {
+    public void convertSearchQuery_groupsOnTheSanitizedDedupField() {
         // dedupField=collection used to be passed straight through to Solr as {!collapse field=collection}, but
         // "collection" isn't a real Solr field (only "collectionOldest" is), which made Solr reject the query
         SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
         searchQuery.setDedupField("collection");
         searchQuery.setDedupValue(2);
         SolrQuery solrQuery = service.convertSearchQuery(searchQuery);
-        assertThat(solrQuery.getFilterQueries()).contains("{!collapse field=collectionOldest}");
+        assertThat(solrQuery.getBool("group")).isTrue();
+        assertThat(solrQuery.get("group.field")).isEqualTo("collectionOldest");
+        assertThat(solrQuery.get("group.limit")).isEqualTo("2");
+        // group.ngroups is deliberately not requested: computing an exact cross-shard distinct-group count is far
+        // more expensive than the search itself (see arquivo/pwa-technologies#1624 performance follow-up)
+        assertThat(solrQuery.get("group.ngroups")).isNull();
+    }
+
+    @Test
+    public void convertSearchQuery_dedupValueZeroOrOneMeansOneResultPerGroup() {
+        SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setDedupValue(0);
+        assertThat(service.convertSearchQuery(searchQuery).get("group.limit")).isEqualTo("1");
+
+        searchQuery.setDedupValue(1);
+        assertThat(service.convertSearchQuery(searchQuery).get("group.limit")).isEqualTo("1");
+    }
+
+    @Test
+    public void convertSearchQuery_dedupValueMinusOneDisablesGrouping() {
+        SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setDedupValue(-1);
+        SolrQuery solrQuery = service.convertSearchQuery(searchQuery);
+        assertThat(solrQuery.get("group")).isNull();
+        assertThat(solrQuery.get("group.field")).isNull();
+        assertThat(solrQuery.get("group.limit")).isNull();
+        assertThat(solrQuery.get("group.ngroups")).isNull();
     }
 
     @Test
@@ -325,14 +368,16 @@ public class SolrSearchServiceTest {
     public void timelineQueryIsNotDeduplicated() {
         SearchQuery searchQuery = timelineQuery();
 
-        // The search collapses on the dedup field, which is a costly post filter and would leave the yearly counts no
+        // The search groups on the dedup field, which is a costly post filter and would leave the yearly counts no
         // longer comparable with the counts of the whole archive
-        assertThat(service.convertSearchQuery(searchQuery).getFilterQueries())
-                .anyMatch(filterQuery -> filterQuery.startsWith("{!collapse"));
+        assertThat(service.convertSearchQuery(searchQuery).getBool("group")).isTrue();
 
         SolrQuery timelineQuery = service.convertTimelineQuery(searchQuery);
-        assertThat(timelineQuery.getFilterQueries()).isNullOrEmpty();
-        assertThat(timelineQuery.get("expand")).isNull();
+        assertThat(timelineQuery.getFilterQueries()).containsExactly("-blocked:1");
+        assertThat(timelineQuery.get("group")).isNull();
+        assertThat(timelineQuery.get("group.field")).isNull();
+        assertThat(timelineQuery.get("group.limit")).isNull();
+        assertThat(timelineQuery.get("group.ngroups")).isNull();
     }
 
     @Test
@@ -345,8 +390,8 @@ public class SolrSearchServiceTest {
 
         assertThat(timelineQuery.getQuery()).isEqualTo("eleições");
         assertThat(timelineQuery.getFilterQueries())
-                .contains("type:application\\/pdf", "collections:AWP1")
-                .noneMatch(filterQuery -> filterQuery.startsWith("{!collapse"));
+                .contains("type:application\\/pdf", "collections:AWP1");
+        assertThat(timelineQuery.get("group")).isNull();
     }
 
     @Test
@@ -437,6 +482,37 @@ public class SolrSearchServiceTest {
         SolrQuery solrQuery = service.convertSearchQuery(searchQuery);
         assertThat(solrQuery.get("hl")).isEqualTo("false");
         assertThat(solrQuery.get("hl.method")).isEqualTo("unified");
+    }
+
+    @Test
+    public void convertSearchQuery_setsHlFragsizeFromSnippetMaxLength() {
+        SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setSnippetMaxLength(150);
+        assertThat(service.convertSearchQuery(searchQuery).getInt("hl.fragsize", -1)).isEqualTo(150);
+    }
+
+    @Test
+    public void convertSearchQuery_usesWordBoundaryScannerSoFragsizeIsActuallyHonored() {
+        // hl.fragsize is only a hint to the Unified Highlighter: its default SENTENCE boundary scanner can treat a
+        // whole run of unpunctuated text (common in scraped web content) as a single "sentence" and ignore fragsize
+        // entirely (arquivo/pwa-technologies#1635). A WORD boundary scanner keeps it honoring fragsize instead.
+        SolrQuery solrQuery = service.convertSearchQuery(new SearchQueryImpl("sapo"));
+        assertThat(solrQuery.get("hl.bs.type")).isEqualTo("WORD");
+        assertThat(solrQuery.get("hl.fragsizeIsMinimum")).isEqualTo("false");
+    }
+
+    @Test
+    public void convertSearchQuery_doesNotSetFragmentSizingParamsWhenSnippetNotNeeded() {
+        // hl.fragsize/hl.fragsizeIsMinimum/hl.bs.type only matter to the highlighter that builds the snippet, so
+        // there's nothing for them to size when the query doesn't ask for one
+        SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setFields(new String[] { "title" });
+
+        SolrQuery solrQuery = service.convertSearchQuery(searchQuery);
+
+        assertThat(solrQuery.get("hl.fragsize")).isNull();
+        assertThat(solrQuery.get("hl.fragsizeIsMinimum")).isNull();
+        assertThat(solrQuery.get("hl.bs.type")).isNull();
     }
 
     @Test
@@ -565,8 +641,12 @@ public class SolrSearchServiceTest {
     }
 
     private static QueryResponse queryResponseWithHighlighting(SolrDocument doc, String fieldName, String snippet) {
+        return queryResponseWithHighlighting(doc, fieldName, Arrays.asList(snippet));
+    }
+
+    private static QueryResponse queryResponseWithHighlighting(SolrDocument doc, String fieldName, List<String> snippets) {
         NamedList<List<String>> docHighlight = new NamedList<>();
-        docHighlight.add(fieldName, Arrays.asList(snippet));
+        docHighlight.add(fieldName, snippets);
         NamedList<Object> highlighting = new NamedList<>();
         highlighting.add((String) doc.getFieldValue("id"), docHighlight);
 
@@ -616,7 +696,7 @@ public class SolrSearchServiceTest {
         SearchResults results = service.query(new SearchQueryImpl("sapo"));
 
         SearchResultSolrImpl result = (SearchResultSolrImpl) results.getResults().get(0);
-        assertThat(result.getTimeAllowed()).isEqualTo(10000);
+        assertThat(result.getTimeAllowed()).isEqualTo(60000);
     }
 
     @Test
@@ -648,7 +728,80 @@ public class SolrSearchServiceTest {
 
         ArgumentCaptor<SolrQuery> solrQueryCaptor = ArgumentCaptor.forClass(SolrQuery.class);
         verify(solrClient).query(solrQueryCaptor.capture());
-        assertThat(solrQueryCaptor.getValue().get("timeAllowed")).isEqualTo("10000");
+        assertThat(solrQueryCaptor.getValue().get("timeAllowed")).isEqualTo("60000");
+    }
+
+    @Test
+    public void query_truncatesTitleToDefaultMaxLengthWithEllipsis() throws Exception {
+        String longTitle = StringUtils.repeat("a", 310);
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        doc.addField("titleString", longTitle);
+        QueryResponse queryResponse = queryResponseWithResults(doc);
+
+        HttpSolrClient solrClient = mock(HttpSolrClient.class);
+        when(solrClient.query(any(SolrQuery.class))).thenReturn(queryResponse);
+        service.solrClient = solrClient;
+
+        SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setFields(new String[] { "title" });
+        SearchResults results = service.query(searchQuery);
+
+        String title = results.getResults().get(0).getTitle();
+        assertThat(title).isEqualTo(StringUtils.repeat("a", 300) + "…");
+    }
+
+    @Test
+    public void query_respectsCustomTitleMaxLength() throws Exception {
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        doc.addField("titleString", "abcdefghij");
+        QueryResponse queryResponse = queryResponseWithResults(doc);
+
+        HttpSolrClient solrClient = mock(HttpSolrClient.class);
+        when(solrClient.query(any(SolrQuery.class))).thenReturn(queryResponse);
+        service.solrClient = solrClient;
+
+        SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setFields(new String[] { "title" });
+        searchQuery.setTitleMaxLength(5);
+        SearchResults results = service.query(searchQuery);
+
+        assertThat(results.getResults().get(0).getTitle()).isEqualTo("abcde…");
+    }
+
+    @Test
+    public void query_titleMaxLengthZeroDisablesTruncation() throws Exception {
+        String longTitle = StringUtils.repeat("a", 310);
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        doc.addField("titleString", longTitle);
+        QueryResponse queryResponse = queryResponseWithResults(doc);
+
+        HttpSolrClient solrClient = mock(HttpSolrClient.class);
+        when(solrClient.query(any(SolrQuery.class))).thenReturn(queryResponse);
+        service.solrClient = solrClient;
+
+        SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setFields(new String[] { "title" });
+        searchQuery.setTitleMaxLength(0);
+        SearchResults results = service.query(searchQuery);
+
+        assertThat(results.getResults().get(0).getTitle()).isEqualTo(longTitle);
+    }
+
+    @Test
+    public void query_doesNotAppendEllipsisWhenTitleShorterThanLimit() throws Exception {
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        doc.addField("titleString", "short title");
+        QueryResponse queryResponse = queryResponseWithResults(doc);
+
+        HttpSolrClient solrClient = mock(HttpSolrClient.class);
+        when(solrClient.query(any(SolrQuery.class))).thenReturn(queryResponse);
+        service.solrClient = solrClient;
+
+        SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setFields(new String[] { "title" });
+        SearchResults results = service.query(searchQuery);
+
+        assertThat(results.getResults().get(0).getTitle()).isEqualTo("short title");
     }
 
     @Test
@@ -656,9 +809,67 @@ public class SolrSearchServiceTest {
         SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
         QueryResponse queryResponse = queryResponseWithHighlighting(doc, "content", "hi <em>there</em>");
 
-        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1");
+        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 300);
 
         assertThat(highlighted).isEqualTo("hi <em>there</em><span class=\"ellipsis\"> ... </span>");
+    }
+
+    @Test
+    public void getHighlightedText_capsHighlightedSnippetEvenWhenSolrIgnoresFragsize() {
+        // Guards against the Unified Highlighter returning something longer than hl.fragsize asked for (see
+        // arquivo/pwa-technologies#1635) - the API must enforce snippetMaxLength itself regardless.
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        String longSnippet = "hi " + StringUtils.repeat("a", 300) + " <em>there</em>";
+        QueryResponse queryResponse = queryResponseWithHighlighting(doc, "content", longSnippet);
+
+        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 10);
+
+        assertThat(highlighted).isEqualTo("hi aaaaaaa<span class=\"ellipsis\"> ... </span>");
+    }
+
+    @Test
+    public void getHighlightedText_truncationClosesADanglingEmTagInsteadOfCuttingMidTag() {
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        // The match starts right before the cutoff, so a naive substring(0, 10) would land inside "<em>"
+        QueryResponse queryResponse = queryResponseWithHighlighting(doc, "content", "0123456789<em>match</em> more text");
+
+        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 12);
+
+        assertThat(highlighted).isEqualTo("0123456789<span class=\"ellipsis\"> ... </span>");
+    }
+
+    @Test
+    public void getHighlightedText_truncationClosesAStillOpenEmTag() {
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        QueryResponse queryResponse = queryResponseWithHighlighting(doc, "content", "before <em>matched term</em> after");
+
+        // Cuts in the middle of the highlighted term itself, leaving "<em>" open
+        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 15);
+
+        assertThat(highlighted).isEqualTo("before <em>matc</em><span class=\"ellipsis\"> ... </span>");
+    }
+
+    @Test
+    public void getHighlightedText_snippetMaxLengthZeroDisablesTruncationOfHighlightedSnippet() {
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        String longSnippet = "hi " + StringUtils.repeat("a", 300) + " <em>there</em>";
+        QueryResponse queryResponse = queryResponseWithHighlighting(doc, "content", longSnippet);
+
+        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 0);
+
+        assertThat(highlighted).isEqualTo(longSnippet + "<span class=\"ellipsis\"> ... </span>");
+    }
+
+    @Test
+    public void getHighlightedText_truncatesEachFragmentIndependentlyWhenMultipleSnippetsReturned() {
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        QueryResponse queryResponse = queryResponseWithHighlighting(doc, "content",
+                Arrays.asList("<em>first</em> match here", "<em>second</em> match here"));
+
+        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 10);
+
+        assertThat(highlighted).isEqualTo("<em>first</em><span class=\"ellipsis\"> ... </span>"
+                + "<em>second</em><span class=\"ellipsis\"> ... </span>");
     }
 
     @Test
@@ -674,7 +885,7 @@ public class SolrSearchServiceTest {
         when(solrClient.query(any(SolrQuery.class))).thenReturn(contentResponse);
         service.solrClient = solrClient;
 
-        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1");
+        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 300);
 
         assertThat(highlighted).isEqualTo("short content");
     }
@@ -692,7 +903,7 @@ public class SolrSearchServiceTest {
         when(solrClient.query(any(SolrQuery.class))).thenReturn(contentResponse);
         service.solrClient = solrClient;
 
-        service.getHighlightedText(queryResponse, "content", "doc-1");
+        service.getHighlightedText(queryResponse, "content", "doc-1", 300);
 
         ArgumentCaptor<SolrQuery> solrQueryCaptor = ArgumentCaptor.forClass(SolrQuery.class);
         verify(solrClient).query(solrQueryCaptor.capture());
@@ -713,9 +924,46 @@ public class SolrSearchServiceTest {
         when(solrClient.query(any(SolrQuery.class))).thenReturn(contentResponse);
         service.solrClient = solrClient;
 
-        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1");
+        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 500);
 
         assertThat(highlighted).isEqualTo(longContent.substring(0, 500) + "<span class=\"ellipsis\"> ... </span>");
+    }
+
+    @Test
+    public void getHighlightedText_fallbackRespectsCustomSnippetMaxLength() throws Exception {
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        QueryResponse queryResponse = queryResponseWithResults(doc);
+
+        SolrDocument contentDoc = new SolrDocument();
+        contentDoc.addField("content", "abcdefghij");
+        QueryResponse contentResponse = queryResponseWithResults(contentDoc);
+
+        HttpSolrClient solrClient = mock(HttpSolrClient.class);
+        when(solrClient.query(any(SolrQuery.class))).thenReturn(contentResponse);
+        service.solrClient = solrClient;
+
+        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 5);
+
+        assertThat(highlighted).isEqualTo("abcde<span class=\"ellipsis\"> ... </span>");
+    }
+
+    @Test
+    public void getHighlightedText_fallbackSnippetMaxLengthZeroDisablesTruncation() throws Exception {
+        SolrDocument doc = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path");
+        QueryResponse queryResponse = queryResponseWithResults(doc);
+
+        String longContent = String.join("", java.util.Collections.nCopies(600, "a"));
+        SolrDocument contentDoc = new SolrDocument();
+        contentDoc.addField("content", longContent);
+        QueryResponse contentResponse = queryResponseWithResults(contentDoc);
+
+        HttpSolrClient solrClient = mock(HttpSolrClient.class);
+        when(solrClient.query(any(SolrQuery.class))).thenReturn(contentResponse);
+        service.solrClient = solrClient;
+
+        String highlighted = service.getHighlightedText(queryResponse, "content", "doc-1", 0);
+
+        assertThat(highlighted).isEqualTo(longContent);
     }
 
     @Test
@@ -728,11 +976,11 @@ public class SolrSearchServiceTest {
         when(solrClient.query(any(SolrQuery.class))).thenReturn(contentResponse);
         service.solrClient = solrClient;
 
-        service.getHighlightedText(queryResponse, "content", "doc-1");
+        service.getHighlightedText(queryResponse, "content", "doc-1", 300);
 
         ArgumentCaptor<SolrQuery> solrQueryCaptor = ArgumentCaptor.forClass(SolrQuery.class);
         verify(solrClient).query(solrQueryCaptor.capture());
-        assertThat(solrQueryCaptor.getValue().get("timeAllowed")).isEqualTo("10000");
+        assertThat(solrQueryCaptor.getValue().get("timeAllowed")).isEqualTo("60000");
     }
 
     @Test
@@ -772,12 +1020,16 @@ public class SolrSearchServiceTest {
 
         // Exactly one query, an exact match on the collection CDX handed back - no wildcard, no regex
         ArgumentCaptor<SolrQuery> solrQueryCaptor = ArgumentCaptor.forClass(SolrQuery.class);
-        verify(solrClient, times(1)).query(solrQueryCaptor.capture());
+        verify(solrClient).query(solrQueryCaptor.capture());
         assertThat(solrQueryCaptor.getValue().getQuery())
                 .startsWith("urlTimestamp:AWP1/20190101000000/")
                 .doesNotContain("*")
                 .doesNotContain("/(");
         assertThat(results.getResults()).hasSize(1);
+
+        assertThat(solrQueryCaptor.getValue().get("shards.tolerant")).isEqualTo("true");
+        assertThat(solrQueryCaptor.getValue().get("timeAllowed")).isEqualTo("60000");
+        assertThat(solrQueryCaptor.getValue().getFilterQueries()).contains("-blocked:1");
     }
 
     @Test
@@ -804,5 +1056,119 @@ public class SolrSearchServiceTest {
         assertThat(solrQueryCaptor.getValue().getQuery()).startsWith("urlTimestamp:WRONGCOLLECTION/");
 
         assertThat(results.getResults()).isEmpty();
+    }
+
+    /**
+     * Builds a grouped QueryResponse matching the exact "grouped" NamedList shape solrj expects (confirmed by
+     * reading QueryResponse#extractGroupedInfo): field -&gt; {matches, groups: [{groupValue, doclist}, ...]}.
+     * ngroups is deliberately never included: group.ngroups isn't requested (see convertSearchQuery), since exact
+     * cross-shard distinct-group counting is far more expensive than the search itself.
+     */
+    private static QueryResponse queryResponseWithGroups(String groupField, int matches, List<SolrDocument[]> groups) {
+        ArrayList<Object> groupsArr = new ArrayList<>();
+        for (SolrDocument[] groupDocs : groups) {
+            SolrDocumentList doclist = new SolrDocumentList();
+            doclist.addAll(Arrays.asList(groupDocs));
+            doclist.setNumFound(groupDocs.length);
+
+            SimpleOrderedMap<Object> grpMap = new SimpleOrderedMap<>();
+            grpMap.add("groupValue", groupDocs.length > 0 ? groupDocs[0].getFieldValue("id") : null);
+            grpMap.add("doclist", doclist);
+            groupsArr.add(grpMap);
+        }
+
+        SimpleOrderedMap<Object> fieldGroups = new SimpleOrderedMap<>();
+        fieldGroups.add("matches", matches);
+        fieldGroups.add("groups", groupsArr);
+
+        NamedList<Object> grouped = new NamedList<>();
+        grouped.add(groupField, fieldGroups);
+
+        NamedList<Object> response = new NamedList<>();
+        response.add("grouped", grouped);
+        response.add("highlighting", new NamedList<>());
+        // No highlighting snippet is set on the test docs, so getHighlightedText falls back to a second Solr query
+        // for the raw content, made through the same mocked client/response; give it an empty (but non-null)
+        // "response" doclist to satisfy that fallback path, since a real grouped response wouldn't hit it either
+        // (the docs would normally carry snippet fields already).
+        SolrDocumentList emptyDocList = new SolrDocumentList();
+        emptyDocList.setNumFound(0);
+        response.add("response", emptyDocList);
+
+        QueryResponse queryResponse = new QueryResponse();
+        queryResponse.setResponse(response);
+        return queryResponse;
+    }
+
+    @Test
+    public void query_groupedResponse_flattensGroupsInOrderAndUsesMatchesForEstimatedCount() throws Exception {
+        SolrDocument doc1 = docWithUrlTimestamp("doc-1", "COLLECTION1/20190101010101/(com,example,)/path1");
+        SolrDocument doc2 = docWithUrlTimestamp("doc-2", "COLLECTION1/20190101010101/(com,other,)/path2");
+        SolrDocument doc3 = docWithUrlTimestamp("doc-3", "COLLECTION1/20190101010101/(com,third,)/path3");
+        QueryResponse queryResponse = queryResponseWithGroups("titleOldest", 42,
+                Arrays.asList(new SolrDocument[]{doc1}, new SolrDocument[]{doc2, doc3}));
+
+        HttpSolrClient solrClient = mock(HttpSolrClient.class);
+        when(solrClient.query(any(SolrQuery.class))).thenReturn(queryResponse);
+        service.solrClient = solrClient;
+
+        SearchResults results = service.query(new SearchQueryImpl("sapo"));
+
+        assertThat(results.getEstimatedNumberResults()).isEqualTo(42);
+        assertThat(results.getNumberResults()).isEqualTo(2);
+        assertThat(results.getResults()).extracting(SearchResult::getId)
+                .containsExactly("doc-1", "doc-2", "doc-3");
+    }
+
+    private static SearchResultSolrImpl resultWithHostKey(String id, String hostKey) {
+        SearchResultSolrImpl result = new SearchResultSolrImpl();
+        result.setId(id);
+        result.setHostKey(hostKey);
+        return result;
+    }
+
+    @Test
+    public void diversifyByHost_defersResultsPastTheCapToTheEndKeepingTheirRelativeOrder() {
+        List<SearchResult> results = Arrays.asList(
+                resultWithHostKey("a1", "hostA"),
+                resultWithHostKey("a2", "hostA"),
+                resultWithHostKey("b1", "hostB"),
+                resultWithHostKey("a3", "hostA"),
+                resultWithHostKey("a4", "hostA"),
+                resultWithHostKey("b2", "hostB"),
+                resultWithHostKey("a5", "hostA")
+        );
+
+        List<SearchResult> diversified = service.diversifyByHost(results);
+
+        // hostA hits its cap (3) at a3; a4 and a5 get pushed after every other result, in their original order
+        assertThat(diversified).extracting(SearchResult::getId)
+                .containsExactly("a1", "a2", "b1", "a3", "b2", "a4", "a5");
+    }
+
+    @Test
+    public void diversifyByHost_underTheCapKeepsOriginalOrder() {
+        List<SearchResult> results = Arrays.asList(
+                resultWithHostKey("a1", "hostA"),
+                resultWithHostKey("b1", "hostB"),
+                resultWithHostKey("a2", "hostA")
+        );
+
+        assertThat(service.diversifyByHost(results)).extracting(SearchResult::getId)
+                .containsExactly("a1", "b1", "a2");
+    }
+
+    @Test
+    public void diversifyByHost_neverDefersResultsWithoutAHostKey() {
+        List<SearchResult> results = Arrays.asList(
+                resultWithHostKey("a1", "hostA"),
+                resultWithHostKey("a2", "hostA"),
+                resultWithHostKey("a3", "hostA"),
+                resultWithHostKey("a4", "hostA"),
+                resultWithHostKey("none", null)
+        );
+
+        assertThat(service.diversifyByHost(results)).extracting(SearchResult::getId)
+                .containsExactly("a1", "a2", "a3", "none", "a4");
     }
 }
