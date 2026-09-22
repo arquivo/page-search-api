@@ -237,12 +237,20 @@ public class CDXSearchService {
         String urlCDX = generateCdxQuery(url, timestamp, timestamp);
         try (InputStream is = openCdxConnection(urlCDX, timeoutMs, timeoutMs).getInputStream();
                 BufferedReader rd = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
-            String line = rd.readLine();
-            if (line == null || line.trim().isEmpty()) {
-                return null;
+            // CDX can return several lines for the same url+timestamp (one per source cdxj file, e.g. an
+            // aggregate "Others.cdxj" entry alongside the real per-collection one), and not every line carries
+            // a "collection" field. Take the first line that does, rather than assuming it's on line 1.
+            String line;
+            while ((line = rd.readLine()) != null) {
+                if (line.trim().isEmpty()) {
+                    continue;
+                }
+                JsonObject o = new JsonParser().parse(line.trim()).getAsJsonObject();
+                if (o.has("collection")) {
+                    return o.get("collection").getAsString();
+                }
             }
-            JsonObject o = new JsonParser().parse(line.trim()).getAsJsonObject();
-            return o.has("collection") ? o.get("collection").getAsString() : null;
+            return null;
         } catch (Exception e) {
             LOG.warn("[getCollectionForExactMatch] CDX lookup failed for url[" + url + "] timestamp[" + timestamp + "]: " + e);
             return null;
