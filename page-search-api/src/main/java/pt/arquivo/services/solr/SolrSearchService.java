@@ -256,11 +256,13 @@ public class SolrSearchService implements SearchService {
         if (searchQuery.isSearchByCollection()) {
             boolean multipleCollection = false;
             StringBuilder stringBuilder = new StringBuilder();
-            stringBuilder.append("collections:");
+            // "collections:" is repeated per term (like the "type" filter below), not just once at the start: a
+            // bare " OR <term>" without the field name would evaluate that term against the default query field
+            // instead of "collections".
             for (String collection : searchQuery.getCollection()) {
                 if (multipleCollection)
                     stringBuilder.append(" OR ");
-                stringBuilder.append(ClientUtils.escapeQueryChars(collection));
+                stringBuilder.append("collections:").append(collectionFilterTerm(collection));
                 multipleCollection = true;
             }
             solrQuery.addFilterQuery(stringBuilder.toString());
@@ -742,6 +744,46 @@ public class SolrSearchService implements SearchService {
     }
 
     /**
+     * Builds the Solr query term for a single requested collection, allowing a trailing "*" to match every
+     * collection sharing that prefix (e.g. "FAWP*" matches FAWP1, FAWP2, ..., FAWP34). This is a genuine Solr
+     * wildcard query rather than a pre-expansion into the list of matching collection names: Solr resolves a
+     * trailing wildcard directly against the field's term dictionary (a prefix query), so it stays fast without
+     * needing to know the full set of collection names in advance. Everything before the trailing "*" is escaped
+     * normally, so it is still taken literally; a "*" anywhere else in the term is escaped too, since only a
+     * trailing wildcard is supported.
+     *
+     * @param collection the requested collection, optionally ending in "*"
+     * @return the (possibly wildcarded) Solr query term for the "collections" field
+     */
+    static String collectionFilterTerm(String collection) {
+        if (collection.endsWith("*")) {
+            return ClientUtils.escapeQueryChars(collection.substring(0, collection.length() - 1)) + "*";
+        }
+        return ClientUtils.escapeQueryChars(collection);
+    }
+
+    /**
+     * Whether a document's collection matches one of the requested collections, allowing a trailing "*" on a
+     * requested collection to match every collection sharing that prefix (see {@link #collectionFilterTerm}).
+     *
+     * @param actualCollection the collection of the document
+     * @param collectionSearch the requested collections, each optionally ending in "*"
+     * @return true if actualCollection matches any of collectionSearch
+     */
+    static boolean collectionMatches(String actualCollection, String[] collectionSearch) {
+        for (String requested : collectionSearch) {
+            if (requested.endsWith("*")) {
+                if (actualCollection.startsWith(requested.substring(0, requested.length() - 1))) {
+                    return true;
+                }
+            } else if (requested.equals(actualCollection)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Extracts the collection from a string in the format collection/timestamp/surt (as returned by the Solr field urlTimestamp)
      *
      * @param tu
@@ -806,8 +848,7 @@ public class SolrSearchService implements SearchService {
                 // Filter out collections if it's a collection bounded search
                 if (collectionSearch != null) {
                     urlstimestamps = urlstimestamps.stream()
-                            .filter(tu -> Arrays.asList(collectionSearch)
-                                    .contains(timestampSurtToCollection((String) tu)))
+                            .filter(tu -> collectionMatches(timestampSurtToCollection((String) tu), collectionSearch))
                             .collect(Collectors.toList());
                 }
 
