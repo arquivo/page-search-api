@@ -157,7 +157,7 @@ public class CDXSearchServiceTest {
         SearchResults results = spy.getResults("http://example.com", null, null, 10, 0);
 
         assertThat(results.getEstimatedNumberResults()).isEqualTo(0);
-        assertThat(results.getResults()).isNull();
+        assertThat(results.getResults()).isNotNull().isEmpty();
     }
 
     @Test
