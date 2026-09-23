@@ -599,7 +599,7 @@ public class SolrSearchService implements SearchService {
         SolrQuery timelineQuery = convertTimelineQuery(searchQuery);
         LOG.info("Solr Query (timeline): " + timelineQuery);
         try {
-            return getTimelineService().buildTimeline(getSolrClient().query(timelineQuery));
+            return getTimelineService().buildTimeline(getSolrClient().query(timelineQuery), searchQuery);
         } catch (SolrServerException | IOException e) {
             LOG.error("Error querying Solr for the timeline: ", e);
             return null;
