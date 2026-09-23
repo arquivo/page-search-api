@@ -172,7 +172,11 @@ public class PageSearchController {
                            @RequestParam(value = "dedupField", required = false, defaultValue = "title") String dedupField,
                            @RequestParam(value = "itemsPerSite", required = false) Integer itemsPerSite,
                            @RequestParam(value = "dedupValue", required = false, defaultValue = "2") int dedupValue,
+                           @Parameter(description = "Only return pages captured on or after this date (a timestamp, or a prefix of one, e.g. 2000 or 20000101). "
+                                   + "Matched against a page's most recent capture, so a page first captured before this date can still be returned if it was captured again on or after it.")
                            @RequestParam(value = "from", required = false) String from,
+                           @Parameter(description = "Only return pages captured on or before this date (a timestamp, or a prefix of one, e.g. 2025 or 20251231). "
+                                   + "Matched against a page's oldest capture, so a page also captured after this date can still be returned if it was first captured on or before it.")
                            @RequestParam(value = "to", required = false) String to,
                            @RequestParam(value = "type", required = false) String[] type,
                            @RequestParam(value = "collection", required = false) String[] collection,
