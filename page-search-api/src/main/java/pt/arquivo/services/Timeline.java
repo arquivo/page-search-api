@@ -1,6 +1,7 @@
 package pt.arquivo.services;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -17,10 +18,17 @@ import java.util.Map;
 public class Timeline {
 
     /** Number of matching documents per year, e.g. {"2005": 1200}. Years without matches are kept with a count of 0. */
+    @Schema(description = "Number of matching documents per year, e.g. {\"2005\": 1200}. Years without matches are kept with a count of 0. "
+            + "When the query is bounded by from/to, years outside that range are also kept at 0: from/to match a page by its most "
+            + "recent/oldest capture rather than the one this count is bucketed by, so without this a year just outside the "
+            + "requested range could otherwise show a small, non representative count.")
     @JsonProperty("counts")
     private final Map<String, Long> counts;
 
     /** matches of the year / documents archived on that year, e.g. {"2005": 0.012}. */
+    @Schema(description = "Share of that year's archived documents that match the query, e.g. {\"2005\": 0.012}. Follows the same from/to "
+            + "zeroing as counts: years outside the requested range are always 0 here, even though the underlying search may "
+            + "still include some documents originating outside that range.")
     @JsonProperty("impact")
     private final Map<String, BigDecimal> impact;
 
