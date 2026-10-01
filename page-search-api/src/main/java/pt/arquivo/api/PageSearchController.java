@@ -175,6 +175,8 @@ public class PageSearchController {
                            @RequestParam(value = "from", required = false) String from,
                            @RequestParam(value = "to", required = false) String to,
                            @RequestParam(value = "type", required = false) String[] type,
+                           @Parameter(description = "Restrict results to one or more collections. Accepts a trailing wildcard to match every collection sharing a prefix, "
+                                   + "e.g. FAWP* matches FAWP1, FAWP2, ..., FAWP34. Multiple collections/patterns can be comma-separated, e.g. FAWP*,MAWP*.")
                            @RequestParam(value = "collection", required = false) String[] collection,
                            @Parameter(description = "Restrict the response to only these fields per result. Omit to return majority of fields.",
                                    array = @ArraySchema(schema = @Schema(allowableValues = {"title", "originalURL", "linkToArchive", "tstamp",
