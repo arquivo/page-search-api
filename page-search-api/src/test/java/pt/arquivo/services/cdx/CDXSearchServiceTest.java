@@ -14,10 +14,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class CDXSearchServiceTest {
@@ -211,5 +213,74 @@ public class CDXSearchServiceTest {
         String collection = spy.getCollectionForExactMatch("http://example.com", "20190101010101", 1000);
 
         assertThat(collection).isNull();
+    }
+
+    @Test
+    public void generateExactMatchCdxQuery_usesFromAndLimitWithoutToOrReverse() throws Exception {
+        // pywb only stops scanning early on "limit"; "to" makes it read every capture of the url, which took
+        // 13-20s for http://www.fccn.pt/ on production (arquivo/pwa-technologies#1656)
+        String query = cdxSearchService.generateExactMatchCdxQuery("http://www.fccn.pt/", "19961013145650");
+
+        assertThat(query).isEqualTo("http://wayback.example.com/cdx?url=http%3A%2F%2Fwww.fccn.pt%2F"
+                + "&output=json&from=19961013145650&limit=" + CDXSearchService.EXACT_MATCH_CDX_LIMIT);
+    }
+
+    @Test
+    public void getCollectionForExactMatch_queriesCdxWithoutTo() throws Exception {
+        CDXSearchService spy = spy(cdxSearchService);
+        doReturn(connectionReturning("")).when(spy).openCdxConnection(anyString(), anyInt(), anyInt());
+
+        spy.getCollectionForExactMatch("http://www.fccn.pt/", "19961013145650", 1000);
+
+        verify(spy).openCdxConnection(eq(cdxSearchService.generateExactMatchCdxQuery("http://www.fccn.pt/",
+                "19961013145650")), eq(1000), eq(1000));
+    }
+
+    @Test
+    public void getCollectionForExactMatch_onlyLaterCaptures_returnsNull() throws Exception {
+        // Without "to", CDX also returns the captures after the timestamp asked for. A later capture's
+        // collection mustn't be taken as the exact match's.
+        String cdxJson = "{\"urlkey\":\"pt,fccn)/\",\"timestamp\":\"19971210202137\","
+                + "\"url\":\"http://www.fccn.pt/\",\"collection\":\"PATCHING2023\"}\n";
+
+        CDXSearchService spy = spy(cdxSearchService);
+        doReturn(connectionReturning(cdxJson)).when(spy).openCdxConnection(anyString(), anyInt(), anyInt());
+
+        String collection = spy.getCollectionForExactMatch("http://www.fccn.pt/", "19961013145650", 1000);
+
+        assertThat(collection).isNull();
+    }
+
+    @Test
+    public void getCollectionForExactMatch_stopsAtFirstLaterCapture() throws Exception {
+        // The exact match's only line has no collection, so the scan has to stop at the next timestamp
+        // instead of picking up that capture's collection
+        String cdxJson = "{\"urlkey\":\"pt,fccn)/\",\"timestamp\":\"19961013145650\","
+                + "\"url\":\"http://www.fccn.pt:80/\",\"source\":\"cdx_folder:Others.cdxj\"}\n"
+                + "{\"urlkey\":\"pt,fccn)/\",\"timestamp\":\"19971210202137\","
+                + "\"url\":\"http://www.fccn.pt/\",\"collection\":\"PATCHING2023\"}\n";
+
+        CDXSearchService spy = spy(cdxSearchService);
+        doReturn(connectionReturning(cdxJson)).when(spy).openCdxConnection(anyString(), anyInt(), anyInt());
+
+        String collection = spy.getCollectionForExactMatch("http://www.fccn.pt/", "19961013145650", 1000);
+
+        assertThat(collection).isNull();
+    }
+
+    @Test
+    public void getCollectionForExactMatch_exactMatchFollowedByLaterCaptures_returnsExactMatchCollection()
+            throws Exception {
+        String cdxJson = "{\"urlkey\":\"pt,fccn)/\",\"timestamp\":\"19961013145650\","
+                + "\"url\":\"http://www.fccn.pt/\",\"collection\":\"Roteiro\"}\n"
+                + "{\"urlkey\":\"pt,fccn)/\",\"timestamp\":\"19971210202137\","
+                + "\"url\":\"http://www.fccn.pt/\",\"collection\":\"PATCHING2023\"}\n";
+
+        CDXSearchService spy = spy(cdxSearchService);
+        doReturn(connectionReturning(cdxJson)).when(spy).openCdxConnection(anyString(), anyInt(), anyInt());
+
+        String collection = spy.getCollectionForExactMatch("http://www.fccn.pt/", "19961013145650", 1000);
+
+        assertThat(collection).isEqualTo("Roteiro");
     }
 }
