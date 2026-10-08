@@ -27,6 +27,12 @@ public class CDXSearchService {
     private final String andOP = "&";
     private final String outputCDX = "json";
 
+    /**
+     * Max lines {@link #getCollectionForExactMatch} asks CDX for. Has to cover every line indexed for the one
+     * timestamp, usually one or two (one per source cdxj file that has the capture).
+     */
+    static final int EXACT_MATCH_CDX_LIMIT = 10;
+
     @Value("${searchpages.api.globaltimeout.ms}")
     private int timeoutreadConn;
 
@@ -226,31 +232,61 @@ public class CDXSearchService {
     }
 
     /**
+     * Builds the CDX query for {@link #getCollectionForExactMatch}: captures of the url from the timestamp
+     * onwards, capped at {@link #EXACT_MATCH_CDX_LIMIT} lines.
+     *
+     * It deliberately leaves out {@code to} (and {@code reverse}). pywb streams the matching lines and stops as
+     * soon as it has {@code limit} of them, but it doesn't use {@code to} to stop scanning: it reads every
+     * capture of the url and drops the ones past {@code to}. So {@code from=ts&to=ts} keeps reading until the
+     * url's captures run out, unless {@code limit} lines match first, and there's no safe limit because the
+     * number of lines for one timestamp isn't known upfront. For a heavily crawled url that's a long scan: on
+     * production http://www.fccn.pt/ has 100,000+ captures across 50+ cdxj files and the lookup took 13-20s,
+     * well past the lookup timeout, so the page was reported as not found (arquivo/pwa-technologies#1656).
+     * Without {@code to}, the limit is always reached right after the wanted timestamp, so pywb stops after
+     * reading a handful of lines (~0.3s for the same url), and the caller stops at the first later timestamp.
+     */
+    String generateExactMatchCdxQuery(String url, String timestamp) throws UnsupportedEncodingException {
+        return this.waybackCdxEndpoint
+                + "?url" + equalOP + URLEncoder.encode(url, StandardCharsets.UTF_8.name())
+                + andOP + "output" + equalOP + outputCDX
+                + andOP + "from" + equalOP + timestamp
+                + andOP + "limit" + equalOP + EXACT_MATCH_CDX_LIMIT;
+    }
+
+    /**
      * Fetches just the collection code for an exact url+timestamp match, bounded by an explicit timeout
      * independent of the general purpose CDX timeouts. Used as a fast-path collection lookup so
      * {@code SolrSearchService#query(SearchQuery, boolean)} can build an exact-match query instead of an
      * expensive leading-wildcard one.
      *
+     * @param timestamp the 14 digit capture timestamp (YYYYMMDDhhmmss), compared verbatim with CDX's
      * @return the collection code, or null if CDX has no match, times out, or fails for any reason
      */
     public String getCollectionForExactMatch(String url, String timestamp, int timeoutMs) {
-        String urlCDX = generateCdxQuery(url, timestamp, timestamp);
-        try (InputStream is = openCdxConnection(urlCDX, timeoutMs, timeoutMs).getInputStream();
-                BufferedReader rd = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
-            // CDX can return several lines for the same url+timestamp (one per source cdxj file, e.g. an
-            // aggregate "Others.cdxj" entry alongside the real per-collection one), and not every line carries
-            // a "collection" field. Take the first line that does, rather than assuming it's on line 1.
-            String line;
-            while ((line = rd.readLine()) != null) {
-                if (line.trim().isEmpty()) {
-                    continue;
+        try {
+            String urlCDX = generateExactMatchCdxQuery(url, timestamp);
+            LOG.debug("[getCollectionForExactMatch] CDX-API URL[" + urlCDX + "]");
+            try (InputStream is = openCdxConnection(urlCDX, timeoutMs, timeoutMs).getInputStream();
+                    BufferedReader rd = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+                // CDX can return several lines for the same url+timestamp (one per source cdxj file, e.g. an
+                // aggregate "Others.cdxj" entry alongside the real per-collection one), and not every line
+                // carries a "collection" field. Take the first line that does, rather than assuming it's on
+                // line 1. Lines come sorted by timestamp, so the first later one means there's no match left.
+                String line;
+                while ((line = rd.readLine()) != null) {
+                    if (line.trim().isEmpty()) {
+                        continue;
+                    }
+                    JsonObject o = new JsonParser().parse(line.trim()).getAsJsonObject();
+                    if (!o.has("timestamp") || !timestamp.equals(o.get("timestamp").getAsString())) {
+                        return null;
+                    }
+                    if (o.has("collection")) {
+                        return o.get("collection").getAsString();
+                    }
                 }
-                JsonObject o = new JsonParser().parse(line.trim()).getAsJsonObject();
-                if (o.has("collection")) {
-                    return o.get("collection").getAsString();
-                }
+                return null;
             }
-            return null;
         } catch (Exception e) {
             LOG.warn("[getCollectionForExactMatch] CDX lookup failed for url[" + url + "] timestamp[" + timestamp + "]: " + e);
             return null;
