@@ -1,13 +1,20 @@
 package pt.arquivo.api;
 
+import io.swagger.v3.oas.models.ExternalDocumentation;
 import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.info.Info;
+import io.swagger.v3.oas.models.info.License;
 import io.swagger.v3.oas.models.servers.Server;
 import io.swagger.v3.oas.models.tags.Tag;
 import org.springdoc.core.customizers.OperationCustomizer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.io.Resource;
+import org.springframework.util.StreamUtils;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -29,9 +36,23 @@ public class OpenApiConfig {
     @Value("${searchpages.api.openapi.server.url:/}")
     private String openApiServerUrl;
 
+    // Markdown, kept in its own file rather than in a string literal so it can be read and edited as a document
+    @Value("classpath:openapi-description.md")
+    private Resource apiDescription;
+
     @Bean
-    public OpenAPI api() {
+    public OpenAPI api() throws IOException {
         return new OpenAPI()
+                .info(new Info()
+                        .title("Arquivo.pt Full-text Search API")
+                        .version("1.0")
+                        .description(StreamUtils.copyToString(apiDescription.getInputStream(), StandardCharsets.UTF_8))
+                        .license(new License()
+                                .name("GPL-3.0")
+                                .url("https://github.com/arquivo/page-search-api/blob/master/LICENSE")))
+                .externalDocs(new ExternalDocumentation()
+                        .description("Arquivo.pt API documentation")
+                        .url("https://arquivo.pt/api"))
                 .servers(Collections.singletonList(new Server().url(openApiServerUrl)))
                 .tags(Arrays.asList(
                         new Tag().name("PageSearch").description("Endpoints to search for Archived WebPages content"),
