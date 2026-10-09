@@ -3,11 +3,13 @@ package pt.arquivo.services;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.swagger.v3.oas.annotations.media.Schema;
 import org.apache.commons.lang.StringUtils;
 
 import java.util.Arrays;
 import java.util.List;
 
+@Schema(name = "SearchQuery")
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class SearchQueryImpl implements SearchQuery {
 
