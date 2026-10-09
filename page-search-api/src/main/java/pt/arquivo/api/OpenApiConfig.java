@@ -1,6 +1,7 @@
 package pt.arquivo.api;
 
 import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.servers.Server;
 import io.swagger.v3.oas.models.tags.Tag;
 import org.springdoc.core.customizers.OperationCustomizer;
 import org.springframework.beans.factory.annotation.Value;
@@ -8,6 +9,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -21,9 +23,16 @@ public class OpenApiConfig {
     @Value("${searchpages.api.snippet.maxlength:300}")
     private int defaultSnippetMaxLength;
 
+    // Without explicit servers springdoc generates one from the request host plus the servlet context path
+    // (e.g. https://arquivo.pt/pagesearch), which 404s behind Apache where the API is published at /textsearch.
+    // A relative URL is resolved by clients against the URL the spec was loaded from.
+    @Value("${searchpages.api.openapi.server.url:/}")
+    private String openApiServerUrl;
+
     @Bean
     public OpenAPI api() {
         return new OpenAPI()
+                .servers(Collections.singletonList(new Server().url(openApiServerUrl)))
                 .tags(Arrays.asList(
                         new Tag().name("PageSearch").description("Endpoints to search for Archived WebPages content"),
                         new Tag().name("Metadata").description("(Not Published) Endpoints to retrieve metadata information about an Archived Web Resource"),
