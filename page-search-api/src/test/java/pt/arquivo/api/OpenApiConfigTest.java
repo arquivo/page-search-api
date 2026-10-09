@@ -12,6 +12,8 @@ import org.springframework.test.context.junit4.SpringRunner;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
+import java.nio.charset.StandardCharsets;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(classes = PageSearchApplication.class)
@@ -35,5 +37,22 @@ public class OpenApiConfigTest {
         JSONArray servers = new JSONObject(response.getContentAsString()).getJSONArray("servers");
         assertThat(servers.length()).isEqualTo(1);
         assertThat(servers.getJSONObject(0).getString("url")).isEqualTo("/");
+    }
+
+    @Test
+    public void apiDocsDescribeTheService() throws Exception {
+        MockHttpServletResponse response = mockMvc.perform(MockMvcRequestBuilders
+                        .get("/textsearch/api-docs/v3"))
+                .andReturn().getResponse();
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        // application/json carries no charset, so MockMvc would otherwise decode it as ISO-8859-1
+        JSONObject info = new JSONObject(response.getContentAsString(StandardCharsets.UTF_8)).getJSONObject("info");
+        assertThat(info.getString("title")).isEqualTo("Arquivo.pt Full-text Search API");
+        // Read from openapi-description.md, so checks the file is found on the classpath and read whole, in UTF-8
+        assertThat(info.getString("description"))
+                .startsWith("Full-text search over the web pages and documents preserved by [Arquivo.pt]")
+                .contains("q=\"António Costa\"")
+                .contains("can be requested cross-origin from a browser.");
     }
 }
