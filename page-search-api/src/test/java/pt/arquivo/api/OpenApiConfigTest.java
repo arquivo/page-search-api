@@ -13,6 +13,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -54,5 +56,31 @@ public class OpenApiConfigTest {
                 .startsWith("Full-text search over the web pages and documents preserved by [Arquivo.pt]")
                 .contains("q=\"António Costa\"")
                 .contains("can be requested cross-origin from a browser.");
+    }
+
+    @Test
+    public void apiDocsListSpellcheckAsFieldsValue() throws Exception {
+        MockHttpServletResponse response = mockMvc.perform(MockMvcRequestBuilders
+                        .get("/textsearch/api-docs/v3"))
+                .andReturn().getResponse();
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        JSONArray parameters = new JSONObject(response.getContentAsString(StandardCharsets.UTF_8))
+                .getJSONObject("paths").getJSONObject("/textsearch").getJSONObject("get").getJSONArray("parameters");
+        JSONObject fields = null;
+        for (int i = 0; i < parameters.length(); i++) {
+            if ("fields".equals(parameters.getJSONObject(i).getString("name"))) {
+                fields = parameters.getJSONObject(i);
+            }
+        }
+        assertThat(fields).isNotNull();
+        // Clients validating against the enum would otherwise reject fields=spellcheck, which the API accepts
+        JSONArray allowedValues = fields.getJSONObject("schema").getJSONObject("items").getJSONArray("enum");
+        List<String> allowed = new ArrayList<>();
+        for (int i = 0; i < allowedValues.length(); i++) {
+            allowed.add(allowedValues.getString(i));
+        }
+        assertThat(allowed).contains("title", "spellcheck");
+        assertThat(fields.getString("description")).contains("suggested_query");
     }
 }
