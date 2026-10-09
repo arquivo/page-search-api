@@ -194,12 +194,15 @@ public class PageSearchController {
                            @Parameter(description = "Restrict results to one or more collections. Accepts a trailing wildcard to match every collection sharing a prefix, "
                                    + "e.g. FAWP* matches FAWP1, FAWP2, ..., FAWP34. Multiple collections/patterns can be comma-separated, e.g. FAWP*,MAWP*.")
                            @RequestParam(value = "collection", required = false) String[] collection,
-                           @Parameter(description = "Restrict the response to only these fields per result. Omit to return majority of fields.",
+                           @Parameter(description = "Restrict the response to only these fields per result. Omit to return majority of fields. "
+                                   + "spellcheck isn't a result field: it asks for a spelling correction of the query, replied in suggested_query "
+                                   + "(empty when the query looks well spelled), e.g. fields=title,spellcheck. "
+                                   + "On its own, fields=spellcheck keeps the default result fields.",
                                    array = @ArraySchema(schema = @Schema(allowableValues = {"title", "originalURL", "linkToArchive", "tstamp",
                                            "contentLength", "digest", "mimeType", "encoding", "date", "linkToScreenshot",
                                            "linkToNoFrame", "linkToExtractedText", "linkToMetadata", "linkToOriginalFile",
                                            "snippet", "fileName", "collection", "offset", "statusCode", "id", "language",
-                                           "languageConfidence"})))
+                                           "languageConfidence", SearchQuery.SPELLCHECK_FIELD})))
                            @RequestParam(value = "fields", required = false) String[] fields,
                            @RequestParam(value = "prettyPrint", required = false) boolean prettyPrint,
                            @RequestParam(value = "titleSearch", required = false) String titleSearch,
