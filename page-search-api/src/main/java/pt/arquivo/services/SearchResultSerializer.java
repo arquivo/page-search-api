@@ -11,11 +11,19 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import java.util.List;
 
 public class SearchResultSerializer extends JsonSerializer {
 
     private static final Logger LOG = LoggerFactory.getLogger(SearchResultSerializer.class);
+
+    /**
+     * Fields of the result classes that are only used internally, so they are never written, not even when asked for
+     * in the fields parameter. The static fields, like the loggers, aren't written either.
+     */
+    private static final List<String> INTERNAL_FIELDS = Arrays.asList("fields", "solrClient", "timeAllowed", "hostKey");
 
     @Value("${searchpages.api.show.ids}")
     boolean showIds;
@@ -26,7 +34,7 @@ public class SearchResultSerializer extends JsonSerializer {
         jsonGenerator.writeStartObject();
         if (searchResult.getFields() != null) {
             for (Field field : searchResult.getClass().getDeclaredFields()) {
-                if (serializeField(field.getName(), searchResult.getFields())) {
+                if (isApiField(field) && serializeField(field.getName(), searchResult.getFields())) {
                     try {
                         field.setAccessible(true);
                         if (field.get(searchResult) != null)
@@ -38,6 +46,9 @@ public class SearchResultSerializer extends JsonSerializer {
             }
         } else {
             for (Field field : searchResult.getClass().getDeclaredFields()) {
+                if (!isApiField(field)) {
+                    continue;
+                }
                 field.setAccessible(true);
                 try {
                     Object value = field.get(searchResult);
@@ -46,9 +57,7 @@ public class SearchResultSerializer extends JsonSerializer {
                             if (showIds) {
                                 jsonGenerator.writeObjectField(field.getName(), field.get(searchResult));
                             }
-                        } else if (!field.getName().equals("LOG") && !field.getName().equals("bean")
-                                && !field.getName().equals("details") && !field.getName().equals("fields")
-                                && !field.getName().equals("solrClient") && !field.getName().equals("timeAllowed")) {
+                        } else {
                             jsonGenerator.writeObjectField(field.getName(), field.get(searchResult));
                         }
                     }
@@ -60,10 +69,12 @@ public class SearchResultSerializer extends JsonSerializer {
         jsonGenerator.writeEndObject();
     }
 
+    private static boolean isApiField(Field field) {
+        return !Modifier.isStatic(field.getModifiers()) && !field.isSynthetic()
+                && !INTERNAL_FIELDS.contains(field.getName());
+    }
+
     private boolean serializeField(String fieldName, String[] fields) {
-        if (fieldName.equals("solrClient") || fieldName.equals("timeAllowed")) {
-            return false;
-        }
         if (fields != null) {
             for (String field : fields) {
                 if (fieldName.equalsIgnoreCase(field))
