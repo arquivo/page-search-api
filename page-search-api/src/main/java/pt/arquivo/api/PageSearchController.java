@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.apache.solr.common.SolrException;
@@ -154,6 +155,11 @@ public class PageSearchController {
                     + "match as an exact phrase and a leading - excludes the pages containing a term. "
                     + "Instead of q, versionHistory lists the captures of a URL and metadata returns the metadata of a single capture. "
                     + "One of q, versionHistory or metadata is required.")
+    // The method returns the ApiResponse interface, which springdoc can't document, so the replies are listed here:
+    // PageSearchResponse for q and versionHistory, MetadataResponse for metadata
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "OK",
+            content = @Content(mediaType = "application/json",
+                    schema = @Schema(anyOf = {PageSearchResponse.class, MetadataResponse.class})))
     @CrossOrigin
     @GetMapping(value = "/textsearch")
     public @ResponseBody
