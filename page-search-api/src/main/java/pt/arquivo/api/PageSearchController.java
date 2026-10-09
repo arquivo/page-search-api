@@ -149,14 +149,26 @@ public class PageSearchController {
         return strength;
     }
 
-    @Operation(summary = "Search for Archived Pages that match the query parameters")
+    @Operation(summary = "Search for Archived Pages that match the query parameters",
+            description = "Full-text search over the archived pages, with q. Every term must match, terms within double quotes "
+                    + "match as an exact phrase and a leading - excludes the pages containing a term. "
+                    + "Instead of q, versionHistory lists the captures of a URL and metadata returns the metadata of a single capture. "
+                    + "One of q, versionHistory or metadata is required.")
     @CrossOrigin
     @GetMapping(value = "/textsearch")
     public @ResponseBody
-    ApiResponse pageSearch(@RequestParam(value = "q", required = false) String query,
+    ApiResponse pageSearch(@Parameter(description = "Search terms, e.g. q=\"António Costa\" or q=Albert -Einstein. URLs aren't accepted here, "
+                                   + "they're rejected with 400 Bad Request: use versionHistory, or the CDX server and Memento APIs, to search by URL.")
+                           @RequestParam(value = "q", required = false) String query,
+                           @Parameter(description = "URL whose captures should be listed, from the oldest, instead of searching by q. "
+                                   + "Can be bounded by from/to and paginated with offset/maxItems.")
                            @RequestParam(value = "versionHistory", required = false) String url,
+                           @Parameter(description = "Capture whose metadata should be returned, instead of searching by q, as <URL>/<timestamp>, "
+                                   + "e.g. http://www.fccn.pt/20010610000000.")
                            @RequestParam(value = "metadata", required = false) String id,
+                           @Parameter(description = "Number of results to skip, to paginate through them.")
                            @RequestParam(value = "offset", required = false, defaultValue = "0") int offset,
+                           @Parameter(description = "Number of results per page, at most 500 when searching by q.")
                            @RequestParam(value = "maxItems", required = false, defaultValue = "50") int maxItems,
                            @Parameter(description = "Maximum number of characters returned in the title field. Titles longer than this are cut short and suffixed with an ellipsis (…). 0 disables truncation.")
                            @RequestParam(value = "titleMaxLength", required = false) Integer titleMaxLength,
