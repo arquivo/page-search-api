@@ -99,6 +99,28 @@ public class SearchResultSerializerTest {
     }
 
     @Test
+    public void defaultMode_neverLeaksHostKey() throws IOException {
+        serializer.showIds = false;
+        result.setHostKey("(pt,fccn,");
+        JsonNode node = serialize();
+        assertThat(node.has("hostKey")).isFalse();
+    }
+
+    @Test
+    public void whitelistMode_neverLeaksInternalFieldsEvenIfRequested() throws IOException {
+        serializer.showIds = false;
+        result.setHostKey("(pt,fccn,");
+        result.setFields(new String[] { "title", "hostKey", "LOG", "solrClient", "fields" });
+        JsonNode node = serialize();
+
+        assertThat(node.has("hostKey")).isFalse();
+        assertThat(node.has("LOG")).isFalse();
+        assertThat(node.has("solrClient")).isFalse();
+        assertThat(node.has("fields")).isFalse();
+        assertThat(node.get("title").asText()).isEqualTo("Example Title");
+    }
+
+    @Test
     public void whitelistMode_onlyIncludesRequestedFields() throws IOException {
         serializer.showIds = false;
         result.setFields(new String[] { "title" });

@@ -1,5 +1,6 @@
 package pt.arquivo.api;
 
+import org.apache.solr.client.solrj.SolrClient;
 import org.apache.solr.common.SolrException;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -20,13 +21,16 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import pt.arquivo.services.SearchQuery;
 import pt.arquivo.services.SearchResult;
 import pt.arquivo.services.SearchResultNutchImpl;
+import pt.arquivo.services.SearchResultSolrImpl;
 import pt.arquivo.services.SearchResults;
 import pt.arquivo.services.SearchService;
 import pt.arquivo.services.Timeline;
 import pt.arquivo.services.cdx.ItemCDX;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -538,5 +542,42 @@ public class PageSearchControllerTest {
                 .header("User-Agent", "TestAgent/1.0")).andReturn();
 
         assertThat(result.getResponse().getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    public void pageSearchNeverRepliesInternalResultFields() throws Exception {
+        // Through the whole Spring stack, so it also fails if results stop going through SearchResultSerializer,
+        // as Jackson's default serialization would reply every getter, getHostKey and getSolrClient included
+        SearchResultSolrImpl mockSearchResult = new SearchResultSolrImpl();
+        mockSearchResult.setTitle("test result");
+        mockSearchResult.setOriginalURL("http://example.com");
+        mockSearchResult.setHostKey("(com,example,");
+        mockSearchResult.setTimeAllowed(5000);
+        mockSearchResult.setSolrClient(mock(SolrClient.class));
+
+        ArrayList<SearchResult> searchResults = new ArrayList<>();
+        searchResults.add(mockSearchResult);
+        SearchResults mockSearchResults = new SearchResults();
+        mockSearchResults.setResults(searchResults);
+        Mockito.when(searchService.query(Mockito.any())).thenReturn(mockSearchResults);
+
+        assertThat(responseItemKeys("/textsearch?q=sapo"))
+                .containsExactlyInAnyOrder("title", "originalURL");
+
+        // The search service copies the requested fields to each result
+        mockSearchResult.setFields(new String[]{"title", "hostKey", "timeAllowed", "solrClient", "fields", "LOG"});
+        assertThat(responseItemKeys("/textsearch?q=sapo&fields=title,hostKey,timeAllowed,solrClient,fields,LOG"))
+                .containsExactly("title");
+    }
+
+    private List<String> responseItemKeys(String uri) throws Exception {
+        MockHttpServletResponse response = mockMvc.perform(MockMvcRequestBuilders.get(uri)).andReturn().getResponse();
+        assertThat(response.getStatus()).isEqualTo(200);
+        JSONObject item = new JSONObject(response.getContentAsString()).getJSONArray("response_items").getJSONObject(0);
+        List<String> keys = new ArrayList<>();
+        for (Iterator<String> names = item.keys(); names.hasNext(); ) {
+            keys.add(names.next());
+        }
+        return keys;
     }
 }
