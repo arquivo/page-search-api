@@ -253,6 +253,24 @@ public class SolrSearchService implements SearchService {
         return solrQuery;
     }
 
+    /** Deduplication is disabled when dedupValue is -1. */
+    private static boolean isDeduplicated(SearchQuery searchQuery) {
+        return searchQuery.getDedupValue() >= 0;
+    }
+
+    /** How many results each deduplication group holds at most: dedupValue 0 or 1 both mean 1 per group. */
+    private static int groupLimit(SearchQuery searchQuery) {
+        return Math.max(searchQuery.getDedupValue(), 1);
+    }
+
+    /**
+     * Whether Solr's start and rows count results, so the page can be asked of Solr directly. They count groups when
+     * deduplicating, which are only the same as results when every group holds a single result.
+     */
+    static boolean pagesByResult(SearchQuery searchQuery) {
+        return !isDeduplicated(searchQuery) || groupLimit(searchQuery) == 1;
+    }
+
     /**
      * Converts the API request into an appropriate Solr query.
      * @param searchQuery
@@ -271,8 +289,20 @@ public class SolrSearchService implements SearchService {
         } else {
             solrQuery.setQuery(sanitizeQuery(searchQuery.getQueryTerms(),solrQuery));
         }
-        solrQuery.setStart(searchQuery.getOffset()); // No need to escape because offset and maxItems are integers
-        solrQuery.setRows(searchQuery.getMaxItems());
+        // offset and maxItems count results. With grouping, Solr's start and rows count groups instead, and a group
+        // holds up to group.limit results, so a result offset can't be turned into a group offset. Every group
+        // up to the end of the page is fetched instead, and parseQueryResponse cuts the page out of them.
+        // group.format=simple doesn't help: it only makes start and rows count results on a single core, a
+        // distributed search still pages it by group.
+        // No need to escape because offset and maxItems are integers
+        if (pagesByResult(searchQuery)) {
+            solrQuery.setStart(searchQuery.getOffset());
+            solrQuery.setRows(searchQuery.getMaxItems());
+        } else {
+            solrQuery.setStart(0);
+            // Every group holds at least one result, so this many groups always cover the page
+            solrQuery.setRows(searchQuery.getMaxItems() == 0 ? 0 : searchQuery.getOffset() + searchQuery.getMaxItems());
+        }
 
         // Never surface blocked content
         solrQuery.addFilterQuery("-blocked:1");
@@ -358,13 +388,12 @@ public class SolrSearchService implements SearchService {
         // expensive part of distributed grouping (measured ~70x slower than plain group=true against the dev Solr,
         // 12 shards). estimatedNumberResults is only ever shown to users as an approximate count, so
         // parseQueryResponse uses the (already-computed as part of the search itself) matches count instead.
-        if (searchQuery.getDedupValue() >= 0){ //deduplication disabled if dedupValue == -1
+        if (isDeduplicated(searchQuery)){
             String dedupField = sanitizeDedupField(searchQuery.getDedupField());
-            int groupLimit = Math.max(searchQuery.getDedupValue(), 1); // dedupValue 0 or 1 both mean "1 per group"
 
             solrQuery.set("group", true);
             solrQuery.set("group.field", dedupField);
-            solrQuery.set("group.limit", groupLimit);
+            solrQuery.set("group.limit", groupLimit(searchQuery));
         }
 
         // Handle type request
@@ -994,11 +1023,16 @@ public class SolrSearchService implements SearchService {
             for (Group group : groupCommand.getValues()) {
                 orderedDocs.addAll(group.getResult());
             }
+            // When Solr was asked for groups rather than for the page (see convertSearchQuery), the page is cut out
+            // here, before the results are built, so the documents outside it cost nothing more
+            int pageStart = pagesByResult(searchQuery) ? 0 : Math.min(searchQuery.getOffset(), orderedDocs.size());
+            int pageEnd = Math.min(pageStart + searchQuery.getMaxItems(), orderedDocs.size());
+            orderedDocs = orderedDocs.subList(pageStart, pageEnd);
             // matches (not the exact distinct-group count) on purpose: group.ngroups is not requested, since
             // computing it is far more expensive across a sharded collection, and this is only ever shown to
             // the user as an approximate count of results, not a hard total.
             estimatedNumberResults = groupCommand.getMatches();
-            numberResults = groupCommand.getValues().size();
+            numberResults = orderedDocs.size();
         } else {
             SolrDocumentList solrDocumentList = queryResponse.getResults();
             orderedDocs.addAll(solrDocumentList);

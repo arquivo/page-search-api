@@ -298,6 +298,42 @@ public class SolrSearchServiceTest {
     }
 
     @Test
+    public void convertSearchQuery_groupsOfSeveralResultsFetchEveryGroupUpToTheEndOfThePage() {
+        // Solr's start and rows count groups, which hold up to dedupValue results each, so the result offset can't be
+        // turned into a group offset: every group up to the end of the page is fetched (arquivo/pwa-technologies#1661)
+        SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setDedupValue(2);
+        searchQuery.setOffset(20);
+        searchQuery.setMaxItems(10);
+        SolrQuery solrQuery = service.convertSearchQuery(searchQuery);
+        assertThat(solrQuery.getStart()).isEqualTo(0);
+        assertThat(solrQuery.getRows()).isEqualTo(30);
+    }
+
+    @Test
+    public void convertSearchQuery_groupsOfSeveralResultsFetchNoGroupWhenNoResultIsAsked() {
+        SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setDedupValue(2);
+        searchQuery.setOffset(20);
+        searchQuery.setMaxItems(0);
+        assertThat(service.convertSearchQuery(searchQuery).getRows()).isEqualTo(0);
+    }
+
+    @Test
+    public void convertSearchQuery_pagesDirectlyWhenGroupsAreResults() {
+        // With one result per group, or without grouping, Solr's start and rows already count results
+        for (int dedupValue : new int[] { -1, 0, 1 }) {
+            SearchQueryImpl searchQuery = new SearchQueryImpl("sapo");
+            searchQuery.setDedupValue(dedupValue);
+            searchQuery.setOffset(20);
+            searchQuery.setMaxItems(10);
+            SolrQuery solrQuery = service.convertSearchQuery(searchQuery);
+            assertThat(solrQuery.getStart()).as("start for dedupValue %d", dedupValue).isEqualTo(20);
+            assertThat(solrQuery.getRows()).as("rows for dedupValue %d", dedupValue).isEqualTo(10);
+        }
+    }
+
+    @Test
     public void timelineServiceIsSharedByTheRequestsRacingOnAColdStart() throws Exception {
         assertThat(distinctFromRacingCallers(service::getTimelineService)).isEqualTo(1);
     }
@@ -1250,9 +1286,81 @@ public class SolrSearchServiceTest {
         SearchResults results = service.query(new SearchQueryImpl("sapo"));
 
         assertThat(results.getEstimatedNumberResults()).isEqualTo(42);
-        assertThat(results.getNumberResults()).isEqualTo(2);
+        assertThat(results.getNumberResults()).isEqualTo(3);
         assertThat(results.getResults()).extracting(SearchResult::getId)
                 .containsExactly("doc-1", "doc-2", "doc-3");
+    }
+
+    private SearchResults queryGroups(SearchQuery searchQuery, List<SolrDocument[]> groups) throws Exception {
+        HttpSolrClient solrClient = mock(HttpSolrClient.class);
+        when(solrClient.query(any(SolrQuery.class))).thenReturn(queryResponseWithGroups("titleString", 42, groups));
+        service.solrClient = solrClient;
+        return service.query(searchQuery);
+    }
+
+    private static SolrDocument docOnHost(String id, String host) {
+        return docWithUrlTimestamp(id, "COLLECTION1/20190101010101/(com," + host + ",)/" + id);
+    }
+
+    @Test
+    public void query_groupedResponse_maxItemsCountsResultsNotGroups() throws Exception {
+        // Each group holds up to dedupValue results, and a page used to hold maxItems groups, so maxItems=1 replied 2
+        // results (arquivo/pwa-technologies#1661)
+        SearchQuery searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setMaxItems(1);
+
+        SearchResults results = queryGroups(searchQuery, Collections.singletonList(
+                new SolrDocument[]{docOnHost("doc-1", "a"), docOnHost("doc-2", "b")}));
+
+        assertThat(results.getResults()).extracting(SearchResult::getId).containsExactly("doc-1");
+        assertThat(results.getNumberResults()).isEqualTo(1);
+    }
+
+    @Test
+    public void query_groupedResponse_offsetCountsResultsSoConsecutivePagesLineUp() throws Exception {
+        List<SolrDocument[]> groups = Arrays.asList(
+                new SolrDocument[]{docOnHost("doc-1", "a"), docOnHost("doc-2", "b")},
+                new SolrDocument[]{docOnHost("doc-3", "c")},
+                new SolrDocument[]{docOnHost("doc-4", "d"), docOnHost("doc-5", "e")});
+
+        List<String> pagedIds = new ArrayList<>();
+        for (int offset = 0; offset < 5; offset += 2) {
+            SearchQuery searchQuery = new SearchQueryImpl("sapo");
+            searchQuery.setOffset(offset);
+            searchQuery.setMaxItems(2);
+            queryGroups(searchQuery, groups).getResults().forEach(result -> pagedIds.add(result.getId()));
+        }
+
+        // Every result once, in order: no page skips or repeats any
+        assertThat(pagedIds).containsExactly("doc-1", "doc-2", "doc-3", "doc-4", "doc-5");
+    }
+
+    @Test
+    public void query_groupedResponse_offsetPastTheGroupsRepliesNoResults() throws Exception {
+        SearchQuery searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setOffset(10);
+        searchQuery.setMaxItems(5);
+
+        SearchResults results = queryGroups(searchQuery, Collections.singletonList(
+                new SolrDocument[]{docOnHost("doc-1", "a"), docOnHost("doc-2", "b")}));
+
+        assertThat(results.getResults()).isEmpty();
+        assertThat(results.getNumberResults()).isEqualTo(0);
+    }
+
+    @Test
+    public void query_groupedResponse_groupsOfOneResultAreAlreadyThePage() throws Exception {
+        // With dedupValue=1 Solr was asked for the page itself (start=offset), so nothing is skipped again
+        SearchQuery searchQuery = new SearchQueryImpl("sapo");
+        searchQuery.setDedupValue(1);
+        searchQuery.setOffset(10);
+        searchQuery.setMaxItems(2);
+
+        SearchResults results = queryGroups(searchQuery, Arrays.asList(
+                new SolrDocument[]{docOnHost("doc-11", "a")},
+                new SolrDocument[]{docOnHost("doc-12", "b")}));
+
+        assertThat(results.getResults()).extracting(SearchResult::getId).containsExactly("doc-11", "doc-12");
     }
 
     private static SearchResultSolrImpl resultWithHostKey(String id, String hostKey) {

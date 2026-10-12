@@ -162,6 +162,25 @@ public class PageSearchControllerTest {
     }
 
     @Test
+    public void pageSearchOffsetMovesByTheCappedMaxItems() throws Exception {
+        // maxItems is capped at 500, so moving offset by the 1000 asked would skip the 500 results in between
+        SearchResults mockSearchResults = new SearchResults();
+        mockSearchResults.setEstimatedNumberResults(10000);
+        mockSearchResults.setResults(new ArrayList<>());
+
+        Mockito.when(searchService.query(Mockito.any())).thenReturn(mockSearchResults);
+
+        MvcResult result = mockMvc.perform(MockMvcRequestBuilders.get("/textsearch?q=sapo&offset=1000&maxItems=1000"))
+                .andReturn();
+
+        JSONObject jsonResponse = new JSONObject(result.getResponse().getContentAsString());
+        assertThat(jsonResponse.getString("next_page"))
+                .isEqualTo("http://localhost:8081/textsearch?q=sapo&offset=1500&maxItems=1000");
+        assertThat(jsonResponse.getString("previous_page"))
+                .isEqualTo("http://localhost:8081/textsearch?q=sapo&offset=500&maxItems=1000");
+    }
+
+    @Test
     public void pageSearch() throws Exception {
         /* Mainly verify API specification */
 

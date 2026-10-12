@@ -340,7 +340,8 @@ public class PageSearchController {
         boolean firstPage = offset <= 0;
 
         String queryString = request.getQueryString();
-        pageSearchResponse.setPagination(maxItems, offset, queryString, firstPage, lastPage);
+        // The pages move by the maxItems the search ran with, after the cap, or a page would skip results
+        pageSearchResponse.setPagination(searchQuery.getMaxItems(), offset, queryString, firstPage, lastPage);
 
         if (searchQuery.getPrettyPrint()) {
             LOG.debug("prettyPrint request");
