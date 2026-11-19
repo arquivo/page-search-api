@@ -26,6 +26,13 @@
             <version>0.3.0</version>
         </dependency>
 
+        <!-- webarchive-commons needs Guava at runtime for its URL canonicalizer; it asks for Guava 17.0 -->
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+            <version>33.7.2-jre</version>
+        </dependency>
+
         <dependency>
             <groupId>org.netpreserve.commons</groupId>
             <artifactId>webarchive-commons</artifactId>
