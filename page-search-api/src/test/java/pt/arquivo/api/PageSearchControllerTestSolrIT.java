@@ -4,6 +4,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -19,7 +20,9 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 @ContextConfiguration(classes = {PageSearchApplication.class})
 public class PageSearchControllerTestSolrIT {
 
-    TestRestTemplate testRestTemplate = new TestRestTemplate();
+    @Autowired
+    private TestRestTemplate testRestTemplate;
+
     HttpHeaders headers = new HttpHeaders();
 
     @LocalServerPort
