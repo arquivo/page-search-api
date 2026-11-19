@@ -211,11 +211,23 @@
                 </configuration>
             </plugin>
             <plugin>
+                <!-- Sets the ${org.mockito:mockito-core:jar} path the tests load Mockito's agent from -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.11.0</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>properties</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <!-- Mockito's bundled ByteBuddy officially only supports up to Java 24; this environment
-                         runs a newer JDK, so mock class generation needs the experimental flag. -->
-                    <argLine>@{argLine} -Dnet.bytebuddy.experimental=true</argLine>
+                    <!-- Load Mockito as an agent, as the JDK is phasing out agents attached at runtime -->
+                    <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
                 </configuration>
             </plugin>
             <plugin>

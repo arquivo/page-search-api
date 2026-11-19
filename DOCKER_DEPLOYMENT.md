@@ -18,7 +18,7 @@ The Page Search API is containerized and published to Docker Hub. This allows fo
 ## Prerequisites
 
 - Docker and Docker Compose installed
-- For local builds: Maven 3.6+ and JDK 11
+- For local builds: Maven 3.6.3+ and JDK 25
 - Docker Hub account with push access (for publishing images)
 - Access to a Solr instance (dev, staging, or production)
 
