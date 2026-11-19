@@ -11,6 +11,31 @@
 
     <packaging>war</packaging>
 
+    <dependencyManagement>
+        <dependencies>
+            <!-- solr-solrj 9 brings slf4j-api 2.x, which ignores the slf4j 1.7 binding of
+                 spring-boot-starter-log4j2 and drops every log line. Keep slf4j on 1.7. -->
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-api</artifactId>
+                <version>1.7.30</version>
+            </dependency>
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>jcl-over-slf4j</artifactId>
+                <version>1.7.30</version>
+            </dependency>
+            <!-- Align the Spring Boot Jackson modules with the jackson-databind of solr-solrj. -->
+            <dependency>
+                <groupId>com.fasterxml.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>2.18.0</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -65,7 +90,7 @@
         <dependency>
             <groupId>org.apache.solr</groupId>
             <artifactId>solr-solrj</artifactId>
-            <version>8.4.1</version>
+            <version>9.10.0</version>
         </dependency>
         <dependency>
             <groupId>joda-time</groupId>
