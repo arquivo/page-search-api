@@ -4,8 +4,7 @@ import org.apache.solr.client.solrj.SolrClient;
 import org.apache.solr.common.SolrException;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,7 +12,6 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.mock.web.MockHttpServletResponse;
-import org.springframework.test.context.junit4.SpringRunner;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.RequestBuilder;
@@ -42,7 +40,6 @@ import static pt.arquivo.services.cdx.CDXSearchService.getSearchResultNutch;
 
 @SpringBootTest(classes = PageSearchApplication.class)
 @AutoConfigureMockMvc
-@RunWith(SpringRunner.class)
 public class PageSearchControllerTest {
 
     @MockBean

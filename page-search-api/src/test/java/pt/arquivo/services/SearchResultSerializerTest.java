@@ -4,9 +4,9 @@ import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.io.StringWriter;
@@ -19,7 +19,7 @@ public class SearchResultSerializerTest {
     private SearchResultSolrImpl result;
     private HttpSolrClient solrClient;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         serializer = new SearchResultSerializer();
         result = new SearchResultSolrImpl();
@@ -30,7 +30,7 @@ public class SearchResultSerializerTest {
         result.setSolrClient(solrClient);
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws IOException {
         solrClient.close();
     }

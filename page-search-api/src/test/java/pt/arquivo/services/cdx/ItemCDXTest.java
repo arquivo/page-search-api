@@ -1,7 +1,7 @@
 package pt.arquivo.services.cdx;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -10,7 +10,7 @@ public class ItemCDXTest {
     private ItemCDX itemCDX1;
     private ItemCDX itemCDX2;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         itemCDX1 = new ItemCDX("http://example.com", "201901010101203401", "DHAJKWDAK",
                 "text/html", "200", "something", "80", "80", "TESTE");

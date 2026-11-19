@@ -1,7 +1,7 @@
 package pt.arquivo.services.cdx;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import pt.arquivo.services.SearchResultNutchImpl;
 import pt.arquivo.services.SearchResults;
 
@@ -26,7 +26,7 @@ public class CDXSearchServiceTest {
 
     private CDXSearchService cdxSearchService;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         cdxSearchService = new CDXSearchService();
         cdxSearchService.waybackCdxEndpoint = "http://wayback.example.com/cdx";
