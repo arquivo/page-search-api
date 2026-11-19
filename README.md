@@ -10,33 +10,29 @@ legacy dependencies). These have never been published to a public Maven reposito
 jars are vendored in `page-search-api/maven-local-repository` and resolved via a `<repository>`
 entry in `page-search-api/pom.xml` — no manual local install step is required.
 
-**NOTE: Do not try to compile with other Java than Java 8**, because of the nutchwax dependecies
+Build and run with **Java 11**: `solr-solrj` 9 needs Java 11 or newer, and Spring Boot 2.2
+supports Java up to 13.
 
 ```
 $ git clone https://github.com/arquivo/pagesearch.git
 $ mvn clean install -f pagesearch/pom.xml
 ```
 
-### Installing Java 8
+### Installing Java 11
 
-On Ubuntu, `openjdk-8-jdk` is no longer available in the default repositories.
-Install it from the Eclipse Temurin (Adoptium) repository instead:
+On Ubuntu, install it from the default repositories:
 
 ```
-$ sudo apt update && sudo apt install -y wget apt-transport-https gpg
-$ wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | sudo gpg --dearmor -o /usr/share/keyrings/adoptium.gpg
-$ echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(awk -F= '/VERSION_CODENAME/{print$2}' /etc/os-release) main" | sudo tee /etc/apt/sources.list.d/adoptium.list
-$ sudo apt update
-$ sudo apt install -y temurin-8-jdk
+$ sudo apt update && sudo apt install -y openjdk-11-jdk
 ```
 
-### Building with Java 8 without changing your system default
+### Building with Java 11 without changing your system default
 
 If you have other JDKs installed, set `JAVA_HOME` for the build instead of
 switching the system-wide default:
 
 ```
-$ JAVA_HOME=/usr/lib/jvm/temurin-8-jdk-amd64 mvn clean install -f pagesearch/pom.xml
+$ JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64 mvn clean install -f pagesearch/pom.xml
 ```
 
 Alternatively, switch the default JVM for your whole session with:
@@ -70,7 +66,7 @@ need to package or deploy it at all — run it directly with the Spring Boot Mav
 plugin, which boots an embedded Tomcat:
 
 ```
-$ JAVA_HOME=/usr/lib/jvm/temurin-8-jdk-amd64 mvn -f page-search-api/pom.xml spring-boot:run
+$ JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64 mvn -f page-search-api/pom.xml spring-boot:run
 ```
 
 By default this listens on port `8081` (see `server.port` in
@@ -91,7 +87,7 @@ line, backgrounding the app and foregrounding the watcher, with a `trap` to
 stop the backgrounded app together with the watcher on Ctrl+C:
 
 ```
-$ JAVA_HOME=/usr/lib/jvm/temurin-8-jdk-amd64 mvn -f page-search-api/pom.xml spring-boot:run -Pdevtools & BOOT_PID=$!; trap "kill $BOOT_PID" EXIT; find page-search-api/src/main/java -name '*.java' | entr -r mvn -f page-search-api/pom.xml compile -q -Pdevtools
+$ JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64 mvn -f page-search-api/pom.xml spring-boot:run -Pdevtools & BOOT_PID=$!; trap "kill $BOOT_PID" EXIT; find page-search-api/src/main/java -name '*.java' | entr -r mvn -f page-search-api/pom.xml compile -q -Pdevtools
 ```
 
 ### Pointing at a Solr backend
@@ -106,7 +102,7 @@ To point at a different Solr instance/collection without editing the committed
 `application.properties`, pass both properties as Spring Boot run arguments:
 
 ```
-$ JAVA_HOME=/usr/lib/jvm/temurin-8-jdk-amd64 mvn -f page-search-api/pom.xml spring-boot:run \
+$ JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64 mvn -f page-search-api/pom.xml spring-boot:run \
     -Dspring-boot.run.arguments="--searchpages.textsearch.service.bean=solr --searchpages.textsearch.service.bean.solr.link=http://<host>:<port>/solr/<collection>"
 ```
 
