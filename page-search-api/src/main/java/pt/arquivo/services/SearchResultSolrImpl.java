@@ -3,13 +3,13 @@ package pt.arquivo.services;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import io.swagger.v3.oas.annotations.media.Schema;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.solr.client.solrj.SolrClient;
 import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.response.QueryResponse;
 import org.apache.solr.common.SolrDocument;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 
@@ -22,7 +22,7 @@ import java.io.IOException;
 @JsonSerialize(using = SearchResultSerializer.class)
 public class SearchResultSolrImpl implements SearchResult {
 
-    private static final Log LOG = LogFactory.getLog(SearchResultSolrImpl.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SearchResultSolrImpl.class);
 
     @Schema(description = "Title of the page, cut to titleMaxLength. When listing captures with versionHistory it is the URL instead.")
     private String title;
