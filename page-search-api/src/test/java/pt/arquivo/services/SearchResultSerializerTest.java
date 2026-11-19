@@ -1,12 +1,12 @@
 package pt.arquivo.services;
 
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import tools.jackson.core.JsonGenerator;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.io.StringWriter;
@@ -36,12 +36,12 @@ public class SearchResultSerializerTest {
     }
 
     private JsonNode serialize() throws IOException {
-        ObjectMapper mapper = new ObjectMapper();
+        JsonMapper mapper = new JsonMapper();
         StringWriter writer = new StringWriter();
         // Use an ObjectMapper-backed generator (not a bare JsonFactory) so it can serialize
         // any synthetic/instrumentation fields the JVM may inject (e.g. coverage tooling),
         // since the class under test iterates over ALL declared fields via reflection.
-        JsonGenerator generator = mapper.getFactory().createGenerator(writer);
+        JsonGenerator generator = mapper.createGenerator(writer);
         serializer.serialize(result, generator, null);
         generator.close();
         return mapper.readTree(writer.toString());

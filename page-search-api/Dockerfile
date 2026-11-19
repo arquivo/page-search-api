@@ -4,7 +4,7 @@
 #   docker build -f page-search-api/Dockerfile -t arquivo/page-search-api .
 
 # ---- Build stage: compile the WAR with Maven ----
-FROM maven:3.8.7-eclipse-temurin-11 AS build
+FROM maven:3.8.7-eclipse-temurin-17 AS build
 
 WORKDIR /build
 
@@ -17,7 +17,7 @@ COPY page-search-api/src page-search-api/src
 RUN mvn -pl page-search-api -am clean package -DskipTests
 
 # ---- Run stage: WAR runs standalone on its embedded (provided-scope) Tomcat ----
-FROM eclipse-temurin:11-jre-jammy
+FROM eclipse-temurin:17-jre-jammy
 
 WORKDIR /app
 

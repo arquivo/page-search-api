@@ -1,21 +1,18 @@
 package pt.arquivo.services;
 
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.databind.JsonSerializer;
-import com.fasterxml.jackson.databind.SerializerProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import tools.jackson.core.JsonGenerator;
+import tools.jackson.databind.SerializationContext;
+import tools.jackson.databind.ValueSerializer;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.List;
 
-public class SearchResultSerializer extends JsonSerializer {
+public class SearchResultSerializer extends ValueSerializer<SearchResult> {
 
     private static final Logger LOG = LoggerFactory.getLogger(SearchResultSerializer.class);
 
@@ -29,8 +26,7 @@ public class SearchResultSerializer extends JsonSerializer {
     boolean showIds;
 
     @Override
-    public void serialize(Object o, JsonGenerator jsonGenerator, SerializerProvider serializerProvider) throws IOException {
-        SearchResult searchResult = (SearchResult) o;
+    public void serialize(SearchResult searchResult, JsonGenerator jsonGenerator, SerializationContext context) {
         jsonGenerator.writeStartObject();
         if (searchResult.getFields() != null) {
             for (Field field : searchResult.getClass().getDeclaredFields()) {
@@ -38,7 +34,7 @@ public class SearchResultSerializer extends JsonSerializer {
                     try {
                         field.setAccessible(true);
                         if (field.get(searchResult) != null)
-                            jsonGenerator.writeObjectField(field.getName(), field.get(searchResult));
+                            jsonGenerator.writePOJOProperty(field.getName(), field.get(searchResult));
                     } catch (IllegalAccessException e) {
                         LOG.error("Error trying to access field", e);
                     }
@@ -55,10 +51,10 @@ public class SearchResultSerializer extends JsonSerializer {
                     if (value != null) {
                         if (field.getName().equals("id")) {
                             if (showIds) {
-                                jsonGenerator.writeObjectField(field.getName(), field.get(searchResult));
+                                jsonGenerator.writePOJOProperty(field.getName(), field.get(searchResult));
                             }
                         } else {
-                            jsonGenerator.writeObjectField(field.getName(), field.get(searchResult));
+                            jsonGenerator.writePOJOProperty(field.getName(), field.get(searchResult));
                         }
                     }
                 } catch (IllegalAccessException e) {

@@ -1,9 +1,8 @@
 package pt.arquivo.services;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.gson.Gson;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.HashMap;
 
@@ -12,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class SearchResultNutchImplTest {
 
     @Test
-    public void testCustomSerialization() throws JsonProcessingException {
+    public void testCustomSerialization() {
         SearchResultNutchImpl searchResult = new SearchResultNutchImpl();
         searchResult.setStatusCode(0);
         searchResult.setTitle("teste");
@@ -32,8 +31,8 @@ public class SearchResultNutchImplTest {
         assertThat(hashMap.get("statusCode")).isNull();
     }
 
-    private HashMap<String, Object> toJson(SearchResultNutchImpl searchResult) throws JsonProcessingException {
-        String json = new ObjectMapper().writeValueAsString(searchResult);
+    private HashMap<String, Object> toJson(SearchResultNutchImpl searchResult) {
+        String json = new JsonMapper().writeValueAsString(searchResult);
         Gson gson = new Gson();
         HashMap<String, Object> hashMap = gson.fromJson(json, HashMap.class);
         return hashMap;

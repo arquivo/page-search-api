@@ -1,7 +1,7 @@
 package pt.arquivo.services;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import tools.jackson.databind.annotation.JsonSerialize;
 
 @JsonSerialize(using = SearchResultSerializer.class)
 public class SearchResultNutchImpl implements SearchResult {

@@ -1,7 +1,5 @@
 package pt.arquivo.api;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
 import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -14,6 +12,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import pt.arquivo.api.exceptions.ApiNotFoundResourceException;
 import pt.arquivo.api.exceptions.ApiRequestException;
@@ -21,8 +21,9 @@ import pt.arquivo.services.*;
 import pt.arquivo.services.cdx.CDXSearchService;
 import pt.arquivo.services.solr.YearBalance;
 import pt.arquivo.utils.Utils;
+import tools.jackson.databind.json.JsonMapper;
 
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
 
 
@@ -51,7 +52,7 @@ public class PageSearchController {
     private SearchService searchService;
 
     @Autowired
-    private ObjectMapper jacksonObjectMapper;
+    private JsonMapper jsonMapper;
 
     @Autowired
     MetadataController metadataController;
@@ -157,15 +158,14 @@ public class PageSearchController {
                     + "match as an exact phrase and a leading - excludes the pages containing a term. "
                     + "Instead of q, versionHistory lists the captures of a URL and metadata returns the metadata of a single capture. "
                     + "One of q, versionHistory or metadata is required.")
-    // The method returns the ApiResponse interface, which springdoc can't document, so the replies are listed here:
+    // The method replies an ApiResponse, which springdoc can't document, so the replies are listed here:
     // PageSearchResponse for q and versionHistory, MetadataResponse for metadata
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "OK",
             content = @Content(mediaType = "application/json",
                     schema = @Schema(anyOf = {PageSearchResponse.class, MetadataResponse.class})))
     @CrossOrigin
     @GetMapping(value = "/textsearch")
-    public @ResponseBody
-    ApiResponse pageSearch(@Parameter(description = "Search terms, e.g. q=\"António Costa\" or q=Albert -Einstein. URLs aren't accepted here, "
+    public ResponseEntity<Object> pageSearch(@Parameter(description = "Search terms, e.g. q=\"António Costa\" or q=Albert -Einstein. URLs aren't accepted here, "
                                    + "they're rejected with 400 Bad Request: use versionHistory, or the CDX server and Memento APIs, to search by URL.")
                            @RequestParam(value = "q", required = false) String query,
                            @Parameter(description = "URL whose captures should be listed, newest first, instead of searching by q. "
@@ -252,9 +252,9 @@ public class PageSearchController {
         final String urlRegEx = "^\\s*(((http|https):\\/\\/)?([a-zA-Z\\d][-\\w\\.]*)\\.([a-zA-Z\\.]{2,6})([-\\/\\w\\p{L}\\.~,;:%&=?!+$#*@\\(?\\)?]*)\\/?)\\s*$";
         
         if (url != null) {
-            return searchCdxURL(url, from, to, maxItems, offset, request);
+            return reply(searchCdxURL(url, from, to, maxItems, offset, request), prettyPrint);
         } else if (id != null) {
-            return metadataController.getMetadata(id);
+            return reply(metadataController.getMetadata(id), prettyPrint);
 
         } else if (query == null) {
             LOG.error("Invalid API Request " + request.getQueryString());
@@ -342,12 +342,6 @@ public class PageSearchController {
         String queryString = request.getQueryString();
         pageSearchResponse.setPagination(maxItems, offset, queryString, firstPage, lastPage);
 
-        if (searchQuery.getPrettyPrint()) {
-            LOG.debug("prettyPrint request");
-            jacksonObjectMapper.enable(SerializationFeature.INDENT_OUTPUT);
-        } else {
-            jacksonObjectMapper.disable(SerializationFeature.INDENT_OUTPUT);
-        }
         StringBuffer requestUrl = request.getRequestURL();
         if (request.getQueryString() != null) {
             requestUrl.append("?");
@@ -368,6 +362,18 @@ public class PageSearchController {
 
 
         LOG.info(SERPLogging.logResult(duration, ipAddress, userAgent, requestUrl.toString(), pageSearchResponse, searchQuery));
-        return pageSearchResponse;
+        return reply(pageSearchResponse, searchQuery.getPrettyPrint());
+    }
+
+    /**
+     * Indents the reply when asked for with its own writer: the JsonMapper is shared by every request.
+     */
+    private ResponseEntity<Object> reply(ApiResponse response, boolean prettyPrint) {
+        if (!prettyPrint) {
+            return ResponseEntity.ok(response);
+        }
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(jsonMapper.writerWithDefaultPrettyPrinter().writeValueAsString(response));
     }
 }

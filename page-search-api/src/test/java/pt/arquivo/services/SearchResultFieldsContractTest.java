@@ -1,14 +1,14 @@
 package pt.arquivo.services;
 
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Parameter;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.objenesis.ObjenesisStd;
 import org.springframework.web.bind.annotation.RequestParam;
 import pt.arquivo.api.PageSearchController;
+import tools.jackson.core.JsonGenerator;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.io.StringWriter;
@@ -17,7 +17,6 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -174,19 +173,15 @@ public class SearchResultFieldsContractTest {
     private static JsonNode serialize(SearchResult result, boolean showIds) throws IOException {
         SearchResultSerializer serializer = new SearchResultSerializer();
         serializer.showIds = showIds;
-        ObjectMapper mapper = new ObjectMapper();
+        JsonMapper mapper = new JsonMapper();
         StringWriter writer = new StringWriter();
-        JsonGenerator generator = mapper.getFactory().createGenerator(writer);
+        JsonGenerator generator = mapper.createGenerator(writer);
         serializer.serialize(result, generator, null);
         generator.close();
         return mapper.readTree(writer.toString());
     }
 
     private static List<String> keys(JsonNode node) {
-        List<String> keys = new ArrayList<>();
-        for (Iterator<String> names = node.fieldNames(); names.hasNext(); ) {
-            keys.add(names.next());
-        }
-        return keys;
+        return new ArrayList<>(node.propertyNames());
     }
 }

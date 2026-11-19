@@ -8,10 +8,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.RequestBuilder;
@@ -42,7 +42,7 @@ import static pt.arquivo.services.cdx.CDXSearchService.getSearchResultNutch;
 @AutoConfigureMockMvc
 public class PageSearchControllerTest {
 
-    @MockBean
+    @MockitoBean
     private SearchService searchService;
 
     @Autowired
@@ -591,5 +591,30 @@ public class PageSearchControllerTest {
             keys.add(names.next());
         }
         return keys;
+    }
+
+    @Test
+    public void pageSearchRepliesFieldsInDeclarationOrder() throws Exception {
+        Mockito.when(searchService.query(Mockito.any())).thenReturn(new SearchResults());
+
+        String body = mockMvc.perform(MockMvcRequestBuilders.get("/textsearch?q=sapo"))
+                .andReturn().getResponse().getContentAsString();
+
+        // Jackson 3 sorts properties alphabetically unless configured with the Jackson 2 defaults
+        assertThat(body).startsWith("{\"serviceName\":");
+        assertThat(body.indexOf("\"linkToService\"")).isLessThan(body.indexOf("\"estimated_nr_results\""));
+    }
+
+    @Test
+    public void prettyPrintOnlyIndentsItsOwnReply() throws Exception {
+        Mockito.when(searchService.query(Mockito.any())).thenReturn(new SearchResults());
+
+        String pretty = mockMvc.perform(MockMvcRequestBuilders.get("/textsearch?q=sapo&prettyPrint=true"))
+                .andReturn().getResponse().getContentAsString();
+        String compact = mockMvc.perform(MockMvcRequestBuilders.get("/textsearch?q=sapo"))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(pretty).contains("\n");
+        assertThat(compact).doesNotContain("\n");
     }
 }
