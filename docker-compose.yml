@@ -8,7 +8,6 @@ services:
     container_name: page-search-api
     network_mode: host
     environment:
-      NUTCHWAX_SEARCH_FILE: /app/
       # Spring relaxed-binding form of searchpages.textsearch.service.bean.solr.link
       # (a plain SOLR_URL var does *not* bind to this property, so it must be spelled
       # out exactly like this to actually override it).

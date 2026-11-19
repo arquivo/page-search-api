@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Build context must be the repository root (page-search-api depends on
-# the sibling "utils" reactor module and its own vendored maven-local-repository).
+# the sibling "utils" reactor module).
 #   docker build -f page-search-api/Dockerfile -t arquivo/page-search-api .
 
 # ---- Build stage: compile the WAR with Maven ----
@@ -12,7 +12,6 @@ COPY pom.xml pom.xml
 COPY utils/pom.xml utils/pom.xml
 COPY utils/src utils/src
 COPY page-search-api/pom.xml page-search-api/pom.xml
-COPY page-search-api/maven-local-repository page-search-api/maven-local-repository
 COPY page-search-api/src page-search-api/src
 
 RUN mvn -pl page-search-api -am clean package -DskipTests
@@ -23,9 +22,7 @@ FROM eclipse-temurin:11-jre-jammy
 WORKDIR /app
 
 COPY --from=build /build/page-search-api/target/page-search-api-*.war app.war
-COPY page-search-api/search-servers.txt .
 
-ENV NUTCHWAX_SEARCH_FILE=/app/
 ENV SERVER_PORT=8080
 # Size the heap off the container's memory limit (not the host's) so behavior
 # stays consistent across environments, always use G1 for predictable pause

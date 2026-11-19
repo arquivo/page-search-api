@@ -7,7 +7,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.PropertySource;
 import org.springframework.context.support.PropertySourcesPlaceholderConfigurer;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.junit4.SpringRunner;
 import pt.arquivo.services.SearchQueryImpl;
 import pt.arquivo.services.SearchResult;
@@ -26,7 +25,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class YearBalanceTestIT {
 
     @Configuration
-    @TestPropertySource(properties = {"searchpages.textsearch.service.bean=solr"})
     @PropertySource("classpath:application.properties")
     static class ContextConfiguration {
         @Bean

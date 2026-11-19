@@ -9,7 +9,6 @@ import org.mockito.Mockito;
 import org.objenesis.ObjenesisStd;
 import org.springframework.web.bind.annotation.RequestParam;
 import pt.arquivo.api.PageSearchController;
-import pt.arquivo.services.nutchwax.SearchResultNutchWaxImpl;
 
 import java.io.IOException;
 import java.io.StringWriter;
@@ -34,7 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class SearchResultFieldsContractTest {
 
     private static final List<Class<? extends SearchResult>> RESULT_CLASSES = Arrays.asList(
-            SearchResultSolrImpl.class, SearchResultNutchImpl.class, SearchResultNutchWaxImpl.class);
+            SearchResultSolrImpl.class, SearchResultNutchImpl.class);
 
     @Test
     public void everyResultFieldIsDocumentedOrInternal() {
@@ -168,7 +167,7 @@ public class SearchResultFieldsContractTest {
         } else if (type == Integer.class || type == int.class) {
             return 1;
         }
-        // Mockito can't mock final classes, like nutch's HitDetails, so those are instantiated skipping the constructor
+        // Mockito can't mock final classes, so those are instantiated skipping the constructor
         return Modifier.isFinal(type.getModifiers()) ? new ObjenesisStd().newInstance(type) : Mockito.mock(type);
     }
 

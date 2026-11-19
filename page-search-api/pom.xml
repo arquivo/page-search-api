@@ -120,44 +120,11 @@
             <version>4.11.0</version>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>pt.arquivo</groupId>
-            <artifactId>pwalucene</artifactId>
-            <version>1.0.0-SNAPSHOT</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>junit</groupId>
-                    <artifactId>junit</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>org.archive.nutchwax</groupId>
-            <artifactId>nutchwax-plugins</artifactId>
-            <version>0.11.0-SNAPSHOT</version>
-            <exclusions>
-                <exclusion>
-                    <artifactId>junit</artifactId>
-                    <groupId>junit</groupId>
-                </exclusion>
-                <exclusion>
-                    <groupId>javax.servlet</groupId>
-                    <artifactId>servlet-api</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
     </dependencies>
 
     <properties>
         <start-class>pt.arquivo.api.PageSearchApplication</start-class>
     </properties>
-
-    <repositories>
-        <repository>
-            <id>local-legacy-nutchwax-repo</id>
-            <url>file://${project.basedir}/maven-local-repository</url>
-        </repository>
-    </repositories>
 
     <profiles>
         <profile>
@@ -208,17 +175,6 @@
                             <imagePullPolicy>Always</imagePullPolicy>
                             <images>
                                 <image>
-                                    <name>arquivo/nutchwaxquery</name>
-                                    <run>
-                                        <ports>
-                                            <port>21112:21112</port>
-                                        </ports>
-                                        <wait>
-                                            <time>5000</time>
-                                        </wait>
-                                    </run>
-                                </image>
-                                <image>
                                     <name>arquivo/pagesearch-solr-test</name>
                                     <run>
                                         <ports>
@@ -255,37 +211,6 @@
 
     <build>
         <plugins>
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>build-helper-maven-plugin</artifactId>
-                <version>3.2.0</version>
-                <executions>
-                    <execution>
-                        <id>add-nutchwax-sources</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>add-source</goal>
-                        </goals>
-                        <configuration>
-                            <sources>
-                                <source>src/main/java-nutchwax</source>
-                            </sources>
-                        </configuration>
-                    </execution>
-                    <execution>
-                        <id>add-nutchwax-test-sources</id>
-                        <phase>generate-test-sources</phase>
-                        <goals>
-                            <goal>add-test-source</goal>
-                        </goals>
-                        <configuration>
-                            <sources>
-                                <source>src/test/java-nutchwax</source>
-                            </sources>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
@@ -332,10 +257,6 @@
                             <includes>
                                 <include>pt/arquivo/**/*.class</include>
                             </includes>
-                            <excludes>
-                                <!-- Deprecated legacy search backend, not held to coverage targets -->
-                                <exclude>pt/arquivo/services/nutchwax/**</exclude>
-                            </excludes>
                         </configuration>
                     </execution>
                     <execution>
@@ -348,10 +269,6 @@
                             <includes>
                                 <include>pt/arquivo/**/*.class</include>
                             </includes>
-                            <excludes>
-                                <!-- Deprecated legacy search backend, not held to coverage targets -->
-                                <exclude>pt/arquivo/services/nutchwax/**</exclude>
-                            </excludes>
                             <rules>
                                 <rule>
                                     <element>BUNDLE</element>

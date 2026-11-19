@@ -23,8 +23,7 @@ public class SearchResultSerializer extends JsonSerializer {
      * Fields of the result classes that are only used internally, so they are never written, not even when asked for
      * in the fields parameter. The static fields, like the loggers, aren't written either.
      */
-    static final List<String> INTERNAL_FIELDS = Arrays.asList("fields", "solrClient", "timeAllowed", "hostKey", "bean",
-            "details");
+    static final List<String> INTERNAL_FIELDS = Arrays.asList("fields", "solrClient", "timeAllowed", "hostKey");
 
     @Value("${searchpages.api.show.ids}")
     boolean showIds;

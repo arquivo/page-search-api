@@ -21,19 +21,14 @@ public class PageSearchApplication extends SpringBootServletInitializer {
 
     private static final Logger LOG = LoggerFactory.getLogger(PageSearchApplication.class);
 
-    @Value("${searchpages.textsearch.service.bean}")
-    private String searchServiceBackend;
-
     @Bean
     CDXSearchService generateCDXSearchService() throws IOException {
         return new CDXSearchService();
     }
 
     /**
-     * Dedicated to the /healthcheck endpoint, so it always pings the Solr backend regardless of which
-     * SearchService is active (e.g. it must not ping NutchWax when searchpages.textsearch.service.bean
-     * selects that backend instead). Timeouts are explicit and comparatively short, so a Solr that's up
-     * but hanging fails the healthcheck quickly instead of blocking the deploy gate that calls it.
+     * Dedicated to the /healthcheck endpoint, with its own explicit and comparatively short timeouts, so a
+     * Solr that's up but hanging fails the healthcheck quickly instead of blocking the deploy gate that calls it.
      */
     @Bean
     SolrClient healthCheckSolrClient(
@@ -47,12 +42,7 @@ public class PageSearchApplication extends SpringBootServletInitializer {
     }
 
     @Bean
-    SearchService generateService() throws Exception {
-        if (searchServiceBackend.equalsIgnoreCase("nutchwax")) {
-            LOG.info("Loading Nutchwax Search Service backend...");
-            Class<?> clazz = Class.forName("pt.arquivo.services.nutchwax.NutchWaxSearchService");
-            return (SearchService) clazz.getDeclaredConstructor().newInstance();
-        }
+    SearchService generateService() {
         LOG.info("Loading Solr Search Service backend...");
         return new SolrSearchService();
     }
