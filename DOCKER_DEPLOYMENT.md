@@ -264,7 +264,6 @@ All configuration is done via environment variables passed to the container at r
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NUTCHWAX_SEARCH_FILE` | `/app/` | Path to search servers configuration |
 | `SEARCHPAGES_TEXTSEARCH_SERVICE_BEAN_SOLR_LINK` | `http://localhost:8983/solr/searchpages` | Solr server URL. Spring's relaxed-binding form of the `searchpages.textsearch.service.bean.solr.link` property — the var name must match exactly, a plain `SOLR_URL` will not bind to it |
 | `SEARCHPAGES_HEALTHCHECK_SOLR_CONNECTIONTIMEOUT_MS` | `2000` | Connection timeout (ms) for the `/textsearch/healthcheck` ping to Solr |
 | `SEARCHPAGES_HEALTHCHECK_SOLR_SOCKETTIMEOUT_MS` | `3000` | Socket timeout (ms) for the `/textsearch/healthcheck` ping to Solr |

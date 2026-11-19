@@ -1,14 +1,8 @@
 # Arquivo.pt Page Search System
 
-This project aims to replace the legacy search system. The legacy search system, Nutchwax based, will be decrepated by Solr as the full-text search backend. In order to accomplish this, it provides a new API implementation to decouple Arquivo.pt API from the old project, making it backend agnostic and working with both Nutchwax and Solr systems.
+The full-text search API of Arquivo.pt, backed by Solr.
 
 ## Compile Page Search
-
-`page-search-api` uses NutchWaxSearchService as a legacy full-text backend, which depends on
-`pt.arquivo:pwalucene` and `org.archive.nutchwax:nutchwax-plugins` (and their own transitive
-legacy dependencies). These have never been published to a public Maven repository, so their
-jars are vendored in `page-search-api/maven-local-repository` and resolved via a `<repository>`
-entry in `page-search-api/pom.xml` — no manual local install step is required.
 
 Build and run with **Java 11**: `solr-solrj` 9 needs Java 11 or newer, and Spring Boot 2.2
 supports Java up to 13.
@@ -92,18 +86,16 @@ $ JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64 mvn -f page-search-api/pom.xml sp
 
 ### Pointing at a Solr backend
 
-`searchpages.textsearch.service.bean` selects the search backend: any value other
-than `nutchwax` loads `SolrSearchService` (see
-`PageSearchApplication#generateService()`), which in turn only reads
-`searchpages.textsearch.service.bean.solr.link` for the Solr base URL — e.g.
+`SolrSearchService` reads the Solr base URL from
+`searchpages.textsearch.service.bean.solr.link`, e.g.
 `http://<host>:<port>/solr/<collection>`.
 
 To point at a different Solr instance/collection without editing the committed
-`application.properties`, pass both properties as Spring Boot run arguments:
+`application.properties`, pass the property as a Spring Boot run argument:
 
 ```
 $ JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64 mvn -f page-search-api/pom.xml spring-boot:run \
-    -Dspring-boot.run.arguments="--searchpages.textsearch.service.bean=solr --searchpages.textsearch.service.bean.solr.link=http://<host>:<port>/solr/<collection>"
+    -Dspring-boot.run.arguments="--searchpages.textsearch.service.bean.solr.link=http://<host>:<port>/solr/<collection>"
 ```
 
 The same property can be overridden the same way when running the packaged
@@ -175,9 +167,8 @@ this repository.
 ### Health Check
 
 `GET /textsearch/healthcheck` pings the Solr instance configured via
-`searchpages.textsearch.service.bean.solr.link` and reports its connectivity,
-independently of which `SearchService` backend is currently selected (it never
-pings NutchWax). Returns `200 {"solr": "ok"}` when Solr is reachable, or
+`searchpages.textsearch.service.bean.solr.link` and reports its connectivity.
+Returns `200 {"solr": "ok"}` when Solr is reachable, or
 `503 {"solr": "unreachable"}` otherwise. The ping's connection and socket
 timeouts are configurable via `searchpages.healthcheck.solr.connectiontimeout.ms`
 (default 2000) and `searchpages.healthcheck.solr.sockettimeout.ms` (default

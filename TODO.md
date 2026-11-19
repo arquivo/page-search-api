@@ -22,7 +22,6 @@
 * ~~Add deduplication to Solr~~
 * ~~Make Metadata Endpoint Work~~
 * ~~Add IT tests to SolrService~~
-* Create FusionSearchService
 * Prepare Test Collection to Improve Ranking
 * Solr Schema change timestamp field type to Date instead of String
 * Deduplication of Results
