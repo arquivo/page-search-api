@@ -15,22 +15,9 @@
 
     <dependencies>
         <dependency>
-            <groupId>commons-httpclient</groupId>
-            <artifactId>commons-httpclient</artifactId>
-            <version>3.1</version>
-        </dependency>
-
-        <dependency>
             <groupId>org.netpreserve</groupId>
             <artifactId>urlcanon</artifactId>
-            <version>0.3.0</version>
-        </dependency>
-
-        <!-- webarchive-commons needs Guava at runtime for its URL canonicalizer; it asks for Guava 17.0 -->
-        <dependency>
-            <groupId>com.google.guava</groupId>
-            <artifactId>guava</artifactId>
-            <version>33.7.2-jre</version>
+            <version>0.4.0</version>
         </dependency>
 
         <dependency>
@@ -38,33 +25,14 @@
             <artifactId>webarchive-commons</artifactId>
             <version>${webarchive.commons.version}</version>
             <exclusions>
+                <!-- Only needed by its Hadoop and Pig integrations, which aren't used here -->
                 <exclusion>
-                    <artifactId>slf4j-api</artifactId>
-                    <groupId>org.slf4j</groupId>
-                </exclusion>
-                <exclusion>
-                    <artifactId>hadoop-core</artifactId>
                     <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-common</artifactId>
                 </exclusion>
                 <exclusion>
-                    <artifactId>commons-io</artifactId>
-                    <groupId>commons-io</groupId>
-                </exclusion>
-                <exclusion>
-                    <artifactId>logback-core</artifactId>
-                    <groupId>ch.qos.logback</groupId>
-                </exclusion>
-                <exclusion>
-                    <artifactId>logback-classic</artifactId>
-                    <groupId>ch.qos.logback</groupId>
-                </exclusion>
-                <exclusion>
-                    <artifactId>guava</artifactId>
-                    <groupId>com.google.guava</groupId>
-                </exclusion>
-                <exclusion>
-                    <artifactId>commons-httpclient</artifactId>
-                    <groupId>commons-httpclient</groupId>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-mapreduce-client-core</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
