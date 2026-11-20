@@ -32,6 +32,10 @@ ENV SERVER_PORT=8080
 # the container to work correctly (see DOCKER_DEPLOYMENT.md). Override
 # JAVA_OPTS entirely when running the image (it replaces this default).
 ENV JAVA_OPTS="-XX:+UseG1GC -XX:MaxRAMPercentage=75.0 -XX:InitialRAMPercentage=50.0 -XX:+ExitOnOutOfMemoryError"
+# The Base64 decode intrinsic of JDK builds before 17.0.21.1, 21.0.13.1 and 25.0.5.1 can write past its
+# buffer on CPUs with AVX-512 (CVE-2026-114938). The java launcher always reads JDK_JAVA_OPTIONS, so the
+# plain Java decoder stays in place even when JAVA_OPTS is overridden.
+ENV JDK_JAVA_OPTIONS="-XX:-UseBASE64Intrinsics"
 
 EXPOSE 8080
 

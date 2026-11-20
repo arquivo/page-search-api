@@ -269,6 +269,7 @@ All configuration is done via environment variables passed to the container at r
 | `SEARCHPAGES_HEALTHCHECK_SOLR_SOCKETTIMEOUT_MS` | `3000` | Socket timeout (ms) for the `/textsearch/healthcheck` ping to Solr |
 | `SERVER_PORT` | `8080` | API server port |
 | `JAVA_OPTS` | `-XX:+UseG1GC -XX:MaxRAMPercentage=75.0 -XX:InitialRAMPercentage=50.0 -XX:+ExitOnOutOfMemoryError` | JVM memory and GC options. Heap is sized as a percentage of the container's memory limit, so a `--memory`/`mem_limit` must be set (see "Production Memory Configuration") |
+| `JDK_JAVA_OPTIONS` | `-XX:-UseBASE64Intrinsics` | JVM options the `java` launcher always adds, even when `JAVA_OPTS` is overridden. Turns off the Base64 decode intrinsic that CVE-2026-114938 affects in JDK builds before 25.0.5.1 on CPUs with AVX-512. Keep it when setting other options here |
 
 ### Port Mapping
 
