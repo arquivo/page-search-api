@@ -1,42 +1,31 @@
 # Arquivo.pt Page Search System
 
-This project aims to replace the legacy search system. The legacy search system, Nutchwax based, will be decrepated by Solr as the full-text search backend. In order to accomplish this, it provides a new API implementation to decouple Arquivo.pt API from the old project, making it backend agnostic and working with both Nutchwax and Solr systems.
+The full-text search API of Arquivo.pt, backed by Solr.
 
 ## Compile Page Search
 
-`page-search-api` uses NutchWaxSearchService as a legacy full-text backend, which depends on
-`pt.arquivo:pwalucene` and `org.archive.nutchwax:nutchwax-plugins` (and their own transitive
-legacy dependencies). These have never been published to a public Maven repository, so their
-jars are vendored in `page-search-api/maven-local-repository` and resolved via a `<repository>`
-entry in `page-search-api/pom.xml` — no manual local install step is required.
-
-**NOTE: Do not try to compile with other Java than Java 8**, because of the nutchwax dependecies
+Build and run with **Java 25**.
 
 ```
 $ git clone https://github.com/arquivo/pagesearch.git
 $ mvn clean install -f pagesearch/pom.xml
 ```
 
-### Installing Java 8
+### Installing Java 25
 
-On Ubuntu, `openjdk-8-jdk` is no longer available in the default repositories.
-Install it from the Eclipse Temurin (Adoptium) repository instead:
+On Ubuntu 24.04, install it from the default repositories:
 
 ```
-$ sudo apt update && sudo apt install -y wget apt-transport-https gpg
-$ wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | sudo gpg --dearmor -o /usr/share/keyrings/adoptium.gpg
-$ echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(awk -F= '/VERSION_CODENAME/{print$2}' /etc/os-release) main" | sudo tee /etc/apt/sources.list.d/adoptium.list
-$ sudo apt update
-$ sudo apt install -y temurin-8-jdk
+$ sudo apt update && sudo apt install -y openjdk-25-jdk
 ```
 
-### Building with Java 8 without changing your system default
+### Building with Java 25 without changing your system default
 
 If you have other JDKs installed, set `JAVA_HOME` for the build instead of
 switching the system-wide default:
 
 ```
-$ JAVA_HOME=/usr/lib/jvm/temurin-8-jdk-amd64 mvn clean install -f pagesearch/pom.xml
+$ JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 mvn clean install -f pagesearch/pom.xml
 ```
 
 Alternatively, switch the default JVM for your whole session with:
@@ -70,7 +59,7 @@ need to package or deploy it at all — run it directly with the Spring Boot Mav
 plugin, which boots an embedded Tomcat:
 
 ```
-$ JAVA_HOME=/usr/lib/jvm/temurin-8-jdk-amd64 mvn -f page-search-api/pom.xml spring-boot:run
+$ JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 mvn -f page-search-api/pom.xml spring-boot:run
 ```
 
 By default this listens on port `8081` (see `server.port` in
@@ -91,23 +80,21 @@ line, backgrounding the app and foregrounding the watcher, with a `trap` to
 stop the backgrounded app together with the watcher on Ctrl+C:
 
 ```
-$ JAVA_HOME=/usr/lib/jvm/temurin-8-jdk-amd64 mvn -f page-search-api/pom.xml spring-boot:run -Pdevtools & BOOT_PID=$!; trap "kill $BOOT_PID" EXIT; find page-search-api/src/main/java -name '*.java' | entr -r mvn -f page-search-api/pom.xml compile -q -Pdevtools
+$ JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 mvn -f page-search-api/pom.xml spring-boot:run -Pdevtools & BOOT_PID=$!; trap "kill $BOOT_PID" EXIT; find page-search-api/src/main/java -name '*.java' | entr -r mvn -f page-search-api/pom.xml compile -q -Pdevtools
 ```
 
 ### Pointing at a Solr backend
 
-`searchpages.textsearch.service.bean` selects the search backend: any value other
-than `nutchwax` loads `SolrSearchService` (see
-`PageSearchApplication#generateService()`), which in turn only reads
-`searchpages.textsearch.service.bean.solr.link` for the Solr base URL — e.g.
+`SolrSearchService` reads the Solr base URL from
+`searchpages.textsearch.service.bean.solr.link`, e.g.
 `http://<host>:<port>/solr/<collection>`.
 
 To point at a different Solr instance/collection without editing the committed
-`application.properties`, pass both properties as Spring Boot run arguments:
+`application.properties`, pass the property as a Spring Boot run argument:
 
 ```
-$ JAVA_HOME=/usr/lib/jvm/temurin-8-jdk-amd64 mvn -f page-search-api/pom.xml spring-boot:run \
-    -Dspring-boot.run.arguments="--searchpages.textsearch.service.bean=solr --searchpages.textsearch.service.bean.solr.link=http://<host>:<port>/solr/<collection>"
+$ JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 mvn -f page-search-api/pom.xml spring-boot:run \
+    -Dspring-boot.run.arguments="--searchpages.textsearch.service.bean.solr.link=http://<host>:<port>/solr/<collection>"
 ```
 
 The same property can be overridden the same way when running the packaged
@@ -179,9 +166,8 @@ this repository.
 ### Health Check
 
 `GET /textsearch/healthcheck` pings the Solr instance configured via
-`searchpages.textsearch.service.bean.solr.link` and reports its connectivity,
-independently of which `SearchService` backend is currently selected (it never
-pings NutchWax). Returns `200 {"solr": "ok"}` when Solr is reachable, or
+`searchpages.textsearch.service.bean.solr.link` and reports its connectivity.
+Returns `200 {"solr": "ok"}` when Solr is reachable, or
 `503 {"solr": "unreachable"}` otherwise. The ping's connection and socket
 timeouts are configurable via `searchpages.healthcheck.solr.connectiontimeout.ms`
 (default 2000) and `searchpages.healthcheck.solr.sockettimeout.ms` (default

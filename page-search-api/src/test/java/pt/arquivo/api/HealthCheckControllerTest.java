@@ -2,15 +2,13 @@ package pt.arquivo.api;
 
 import org.apache.solr.client.solrj.SolrClient;
 import org.apache.solr.client.solrj.SolrServerException;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.mock.web.MockHttpServletResponse;
-import org.springframework.test.context.junit4.SpringRunner;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
@@ -21,10 +19,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(classes = PageSearchApplication.class)
 @AutoConfigureMockMvc
-@RunWith(SpringRunner.class)
 public class HealthCheckControllerTest {
 
-    @MockBean
+    @MockitoBean
     private SolrClient healthCheckSolrClient;
 
     @Autowired

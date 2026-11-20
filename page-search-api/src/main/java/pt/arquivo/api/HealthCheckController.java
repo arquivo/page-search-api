@@ -16,8 +16,7 @@ import java.io.IOException;
 import java.util.Collections;
 
 /**
- * Only checks the Solr backend, not NutchWax: it exists to gate rolling deploys of this service, which is
- * always backed by Solr going forward (see pwa-technologies#1613).
+ * Checks the Solr backend, to gate rolling deploys of this service.
  */
 @Tag(name = "HealthCheck")
 @RestController

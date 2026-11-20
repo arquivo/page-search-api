@@ -1,18 +1,16 @@
 package pt.arquivo.api;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.mock.web.MockHttpServletResponse;
-import org.springframework.test.context.junit4.SpringRunner;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import pt.arquivo.services.SearchQueryImpl;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -23,14 +21,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(classes = PageSearchApplication.class)
 @AutoConfigureMockMvc
-@RunWith(SpringRunner.class)
 public class OpenApiConfigTest {
 
     @Autowired
     private MockMvc mockMvc;
 
     @Autowired
-    private ObjectMapper objectMapper;
+    private JsonMapper jsonMapper;
 
     @Test
     public void apiDocsPublishRelativeServerUrl() throws Exception {
@@ -159,7 +156,7 @@ public class OpenApiConfigTest {
         query.setYearBalance(0.5);
         query.setLanguage("pt");
         query.setMinLanguageConfidence("LOW");
-        JSONObject serialized = new JSONObject(objectMapper.writeValueAsString(query));
+        JSONObject serialized = new JSONObject(jsonMapper.writeValueAsString(query));
 
         assertThat(keys(searchQuery.getJSONObject("properties")))
                 .containsExactlyInAnyOrderElementsOf(keys(serialized));

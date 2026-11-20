@@ -11,11 +11,25 @@
 
     <packaging>war</packaging>
 
+    <dependencyManagement>
+        <dependencies>
+            <!-- solr-api brings an older swagger-annotations than the swagger-core of springdoc, which then
+                 fails building the API docs. Keep every swagger artifact on the version springdoc uses. -->
+            <dependency>
+                <groupId>io.swagger.core.v3</groupId>
+                <artifactId>swagger-bom</artifactId>
+                <version>2.2.55</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
-            <version>2.2.4.RELEASE</version>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
             <exclusions>
                 <exclusion>
                     <groupId>org.springframework.boot</groupId>
@@ -26,14 +40,28 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-resttestclient</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-restclient</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-tomcat</artifactId>
-            <version>2.2.4.RELEASE</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-logging</artifactId>
+                </exclusion>
+            </exclusions>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-            <version>2.2.4.RELEASE</version>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
             <exclusions>
                 <exclusion>
                     <groupId>org.springframework.boot</groupId>
@@ -44,33 +72,38 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-log4j2</artifactId>
-            <version>2.2.4.RELEASE</version>
         </dependency>
         <dependency>
             <groupId>org.assertj</groupId>
             <artifactId>assertj-core</artifactId>
-            <version>3.15.0</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>
-            <version>2.8.9</version>
         </dependency>
         <dependency>
             <groupId>org.springdoc</groupId>
-            <artifactId>springdoc-openapi-ui</artifactId>
-            <version>1.8.0</version>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>3.2.0</version>
+        </dependency>
+        <!-- Newer than the one Spring Boot manages, as webarchive-commons needs -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.22.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.solr</groupId>
             <artifactId>solr-solrj</artifactId>
-            <version>8.4.1</version>
-        </dependency>
-        <dependency>
-            <groupId>joda-time</groupId>
-            <artifactId>joda-time</artifactId>
-            <version>2.10.6</version>
+            <version>9.11.0</version>
+            <exclusions>
+                <!-- Spring's commons-logging already routes to log4j2, and both carry the same classes -->
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>jcl-over-slf4j</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>pt.arquivo</groupId>
@@ -79,60 +112,15 @@
             <scope>compile</scope>
         </dependency>
         <dependency>
-            <groupId>com.googlecode.json-simple</groupId>
-            <artifactId>json-simple</artifactId>
-            <version>1.1.1</version>
-        </dependency>
-        <dependency>
-            <groupId>junit</groupId>
-            <artifactId>junit</artifactId>
-            <version>4.12</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
-            <version>4.11.0</version>
             <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>pt.arquivo</groupId>
-            <artifactId>pwalucene</artifactId>
-            <version>1.0.0-SNAPSHOT</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>junit</groupId>
-                    <artifactId>junit</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>org.archive.nutchwax</groupId>
-            <artifactId>nutchwax-plugins</artifactId>
-            <version>0.11.0-SNAPSHOT</version>
-            <exclusions>
-                <exclusion>
-                    <artifactId>junit</artifactId>
-                    <groupId>junit</groupId>
-                </exclusion>
-                <exclusion>
-                    <groupId>javax.servlet</groupId>
-                    <artifactId>servlet-api</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
     </dependencies>
 
     <properties>
         <start-class>pt.arquivo.api.PageSearchApplication</start-class>
     </properties>
-
-    <repositories>
-        <repository>
-            <id>local-legacy-nutchwax-repo</id>
-            <url>file://${project.basedir}/maven-local-repository</url>
-        </repository>
-    </repositories>
 
     <profiles>
         <profile>
@@ -145,9 +133,6 @@
                 <plugins>
                     <plugin>
                         <artifactId>maven-failsafe-plugin</artifactId>
-                        <version>2.22.2</version>
-                        <configuration>
-                        </configuration>
                         <executions>
                             <execution>
                                 <goals>
@@ -161,7 +146,7 @@
                     <plugin>
                         <groupId>io.fabric8</groupId>
                         <artifactId>docker-maven-plugin</artifactId>
-                        <version>0.33.0</version>
+                        <version>0.49.0</version>
                         <executions>
                             <execution>
                                 <id>start</id>
@@ -182,17 +167,6 @@
                         <configuration>
                             <imagePullPolicy>Always</imagePullPolicy>
                             <images>
-                                <image>
-                                    <name>arquivo/nutchwaxquery</name>
-                                    <run>
-                                        <ports>
-                                            <port>21112:21112</port>
-                                        </ports>
-                                        <wait>
-                                            <time>5000</time>
-                                        </wait>
-                                    </run>
-                                </image>
                                 <image>
                                     <name>arquivo/pagesearch-solr-test</name>
                                     <run>
@@ -222,7 +196,6 @@
                 <dependency>
                     <groupId>org.springframework.boot</groupId>
                     <artifactId>spring-boot-devtools</artifactId>
-                    <version>2.2.4.RELEASE</version>
                 </dependency>
             </dependencies>
         </profile>
@@ -231,40 +204,9 @@
     <build>
         <plugins>
             <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>build-helper-maven-plugin</artifactId>
-                <version>3.2.0</version>
-                <executions>
-                    <execution>
-                        <id>add-nutchwax-sources</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>add-source</goal>
-                        </goals>
-                        <configuration>
-                            <sources>
-                                <source>src/main/java-nutchwax</source>
-                            </sources>
-                        </configuration>
-                    </execution>
-                    <execution>
-                        <id>add-nutchwax-test-sources</id>
-                        <phase>generate-test-sources</phase>
-                        <goals>
-                            <goal>add-test-source</goal>
-                        </goals>
-                        <configuration>
-                            <sources>
-                                <source>src/test/java-nutchwax</source>
-                            </sources>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
-                <version>2.2.6.RELEASE</version>
+                <version>${spring-boot.version}</version>
                 <executions>
                     <execution>
                         <goals>
@@ -275,17 +217,29 @@
             </plugin>
             <plugin>
                 <artifactId>maven-war-plugin</artifactId>
-                <version>3.2.3</version>
+                <version>3.5.1</version>
                 <configuration>
                     <failOnMissingWebXml>false</failOnMissingWebXml>
                 </configuration>
             </plugin>
             <plugin>
+                <!-- Sets the ${org.mockito:mockito-core:jar} path the tests load Mockito's agent from -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.11.0</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>properties</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <!-- Mockito's bundled ByteBuddy officially only supports up to Java 24; this environment
-                         runs a newer JDK, so mock class generation needs the experimental flag. -->
-                    <argLine>${argLine} -Dnet.bytebuddy.experimental=true</argLine>
+                    <!-- Load Mockito as an agent, as the JDK is phasing out agents attached at runtime -->
+                    <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
                 </configuration>
             </plugin>
             <plugin>
@@ -307,10 +261,6 @@
                             <includes>
                                 <include>pt/arquivo/**/*.class</include>
                             </includes>
-                            <excludes>
-                                <!-- Deprecated legacy search backend, not held to coverage targets -->
-                                <exclude>pt/arquivo/services/nutchwax/**</exclude>
-                            </excludes>
                         </configuration>
                     </execution>
                     <execution>
@@ -323,10 +273,6 @@
                             <includes>
                                 <include>pt/arquivo/**/*.class</include>
                             </includes>
-                            <excludes>
-                                <!-- Deprecated legacy search backend, not held to coverage targets -->
-                                <exclude>pt/arquivo/services/nutchwax/**</exclude>
-                            </excludes>
                             <rules>
                                 <rule>
                                     <element>BUNDLE</element>

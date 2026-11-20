@@ -1,7 +1,7 @@
 package pt.arquivo.api;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import pt.arquivo.services.SearchResult;
 import pt.arquivo.services.SearchResultNutchImpl;
 import pt.arquivo.services.SearchResults;
@@ -22,7 +22,7 @@ public class MetadataControllerTest {
     private PageSearchController pageSearchController;
     private CDXSearchService cdxSearchService;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         metadataController = new MetadataController();
         pageSearchController = mock(PageSearchController.class);

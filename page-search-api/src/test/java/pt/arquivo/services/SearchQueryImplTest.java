@@ -1,7 +1,7 @@
 package pt.arquivo.services;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -13,7 +13,7 @@ public class SearchQueryImplTest {
 
     private SearchQueryImpl searchQuery;
 
-    @Before
+    @BeforeEach
     public void setupSearchQuery() {
         searchQuery = new SearchQueryImpl("sapo ya");
         searchQuery.setOffset(0);

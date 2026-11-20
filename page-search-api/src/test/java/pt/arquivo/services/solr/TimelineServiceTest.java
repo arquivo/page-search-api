@@ -2,7 +2,7 @@ package pt.arquivo.services.solr;
 
 import org.apache.solr.client.solrj.response.QueryResponse;
 import org.apache.solr.common.util.NamedList;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.util.LinkedHashMap;

@@ -1,6 +1,6 @@
 package pt.arquivo.services.solr;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
@@ -11,8 +11,8 @@ import org.apache.solr.common.SolrDocument;
 import org.apache.solr.common.SolrDocumentList;
 import org.apache.solr.common.util.NamedList;
 import org.apache.solr.common.util.SimpleOrderedMap;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import pt.arquivo.services.SearchQuery;
 import pt.arquivo.services.SearchQueryImpl;
@@ -52,7 +52,7 @@ public class SolrSearchServiceTest {
 
     private SolrSearchService service;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         SearchServiceConfiguration configuration = new SearchServiceConfiguration();
         configuration.setStartDate("19960101000000");

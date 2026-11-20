@@ -1,6 +1,6 @@
 package pt.arquivo.api;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import pt.arquivo.services.SearchQueryImpl;
 import pt.arquivo.services.SearchResultNutchImpl;
 

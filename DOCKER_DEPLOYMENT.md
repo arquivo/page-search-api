@@ -18,7 +18,7 @@ The Page Search API is containerized and published to Docker Hub. This allows fo
 ## Prerequisites
 
 - Docker and Docker Compose installed
-- For local builds: Maven 3.6+ and JDK 8+
+- For local builds: Maven 3.6.3+ and JDK 25
 - Docker Hub account with push access (for publishing images)
 - Access to a Solr instance (dev, staging, or production)
 
@@ -134,7 +134,7 @@ API will be available at `http://localhost:8080`
 
 The image ships with default JVM flags (see `JAVA_OPTS` in the `page-search-api/Dockerfile`) tuned for running in a memory-constrained container:
 
-- `-XX:+UseG1GC` — G1 instead of JDK 8's default Parallel GC, for more predictable pause times on a request/response API.
+- `-XX:+UseG1GC` — always G1, for predictable pause times on a request/response API (the JVM falls back to Serial GC on containers with fewer than 2 CPUs or less than 1792 MB of memory).
 - `-XX:MaxRAMPercentage=75.0 -XX:InitialRAMPercentage=50.0` — size the heap as a percentage of the container's memory limit instead of a fixed `-Xmx`/`-Xms`, so the same image behaves correctly across environments with different memory limits.
 - `-XX:+ExitOnOutOfMemoryError` — exit on OOM instead of limping along in a broken state, so the orchestrator restarts the container.
 
@@ -264,12 +264,12 @@ All configuration is done via environment variables passed to the container at r
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NUTCHWAX_SEARCH_FILE` | `/app/` | Path to search servers configuration |
 | `SEARCHPAGES_TEXTSEARCH_SERVICE_BEAN_SOLR_LINK` | `http://localhost:8983/solr/searchpages` | Solr server URL. Spring's relaxed-binding form of the `searchpages.textsearch.service.bean.solr.link` property — the var name must match exactly, a plain `SOLR_URL` will not bind to it |
 | `SEARCHPAGES_HEALTHCHECK_SOLR_CONNECTIONTIMEOUT_MS` | `2000` | Connection timeout (ms) for the `/textsearch/healthcheck` ping to Solr |
 | `SEARCHPAGES_HEALTHCHECK_SOLR_SOCKETTIMEOUT_MS` | `3000` | Socket timeout (ms) for the `/textsearch/healthcheck` ping to Solr |
 | `SERVER_PORT` | `8080` | API server port |
 | `JAVA_OPTS` | `-XX:+UseG1GC -XX:MaxRAMPercentage=75.0 -XX:InitialRAMPercentage=50.0 -XX:+ExitOnOutOfMemoryError` | JVM memory and GC options. Heap is sized as a percentage of the container's memory limit, so a `--memory`/`mem_limit` must be set (see "Production Memory Configuration") |
+| `JDK_JAVA_OPTIONS` | `-XX:-UseBASE64Intrinsics` | JVM options the `java` launcher always adds, even when `JAVA_OPTS` is overridden. Turns off the Base64 decode intrinsic that CVE-2026-114938 affects in JDK builds before 25.0.5.1 on CPUs with AVX-512. Keep it when setting other options here |
 
 ### Port Mapping
 
